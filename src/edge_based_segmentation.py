@@ -4,10 +4,13 @@ from pathlib import Path
 from typing import Tuple, Optional, List, Dict
 import os
 import glob
+import matplotlib.pyplot as plt
+from sklearn.metrics import precision_score, recall_score, f1_score
+import pandas as pd
 
 
 class EdgeBasedSegmentation:
-    """Basic implementation of edge-based segmentation using Sobel and Canny detectors."""
+    """Enhanced implementation of edge-based segmentation with comparison features."""
 
     def __init__(self, base_path: str):
         """
@@ -21,6 +24,7 @@ class EdgeBasedSegmentation:
         self.edges = None
         self.segments = None
         self.image_id = None
+        self.comparison_metrics = {}
 
         # Validate dataset structure
         self.validate_dataset_structure()
@@ -40,14 +44,12 @@ class EdgeBasedSegmentation:
 
     def get_image_path(self, image_id: str) -> Path:
         """Get the path to an image given its ID."""
-        # Check train directory
         train_path = (
             self.base_path / "BSDS300-images" / "images" / "train" / f"{image_id}.jpg"
         )
         if train_path.exists():
             return train_path
 
-        # Check test directory
         test_path = (
             self.base_path / "BSDS300-images" / "images" / "test" / f"{image_id}.jpg"
         )
@@ -55,23 +57,6 @@ class EdgeBasedSegmentation:
             return test_path
 
         raise ValueError(f"Image {image_id} not found in dataset")
-
-    def get_segmentation_paths(self, image_id: str) -> Dict[str, List[Path]]:
-        """Get paths to all ground truth segmentations for an image."""
-        seg_paths = {"color": [], "gray": []}
-
-        # Search in all annotator directories for both color and gray
-        for mode in ["color", "gray"]:
-            base_seg_path = self.base_path / "BSDS300-human" / "human" / mode
-            for annotator_dir in base_seg_path.glob(
-                "*"
-            ):  # iterate through numbered directories
-                if annotator_dir.is_dir():
-                    seg_file = annotator_dir / f"{image_id}.seg"
-                    if seg_file.exists():
-                        seg_paths[mode].append(seg_file)
-
-        return seg_paths
 
     def load_image(self, image_id: str) -> None:
         """Load an image and store its ID."""
@@ -94,20 +79,13 @@ class EdgeBasedSegmentation:
         if self.image is None:
             raise ValueError("No image loaded")
 
-        # Convert to grayscale
         gray = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
-
-        # Apply Gaussian blur to reduce noise
         blurred = cv2.GaussianBlur(gray, (ksize, ksize), 0)
 
-        # Calculate gradients
         grad_x = cv2.Sobel(blurred, cv2.CV_64F, 1, 0, ksize=ksize)
         grad_y = cv2.Sobel(blurred, cv2.CV_64F, 0, 1, ksize=ksize)
 
-        # Calculate magnitude
         magnitude = np.sqrt(grad_x**2 + grad_y**2)
-
-        # Normalize to 0-255 range
         magnitude = cv2.normalize(magnitude, None, 0, 255, cv2.NORM_MINMAX).astype(
             np.uint8
         )
@@ -130,13 +108,8 @@ class EdgeBasedSegmentation:
         if self.image is None:
             raise ValueError("No image loaded")
 
-        # Convert to grayscale
         gray = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
-
-        # Apply Gaussian blur
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-
-        # Apply Canny edge detection
         edges = cv2.Canny(blurred, low_threshold, high_threshold)
 
         self.edges = edges
@@ -157,10 +130,7 @@ class EdgeBasedSegmentation:
         if self.edges is None:
             raise ValueError("No edges detected. Run edge detection first.")
 
-        # Threshold edges to create binary edge map
         binary_edges = self.edges > threshold
-
-        # Create markers for watershed
         ret, markers = cv2.connectedComponents(~binary_edges.astype(np.uint8))
 
         # Filter small regions
@@ -172,42 +142,119 @@ class EdgeBasedSegmentation:
         self.segments = markers
         return markers
 
-    def save_results(self, output_base_path: str, method: str) -> None:
-        """
-        Save detection and segmentation results.
-
-        Args:
-            output_base_path: Base path for saving results
-            method: Name of the method used (e.g., 'sobel', 'canny')
-        """
-        if self.edges is None or self.segments is None:
-            raise ValueError("Run edge detection and segmentation first")
-
-        # Create output directories
-        output_base = Path(output_base_path)
-        edges_dir = output_base / "edges" / method
-        segments_dir = output_base / "segments" / method
-        edges_dir.mkdir(parents=True, exist_ok=True)
-        segments_dir.mkdir(parents=True, exist_ok=True)
-
-        # Save edge detection result
-        edge_vis = cv2.cvtColor(self.edges, cv2.COLOR_GRAY2BGR)
-        cv2.imwrite(str(edges_dir / f"{self.image_id}_edges.jpg"), edge_vis)
-
-        # Save segmentation result
-        segment_vis = np.zeros_like(self.image)
-        unique_labels = np.unique(self.segments)
+    def create_segment_visualization(self, segments: np.ndarray) -> np.ndarray:
+        """Create a color visualization of segments."""
+        vis = np.zeros_like(self.image)
+        unique_labels = np.unique(segments)
         colors = np.random.randint(0, 255, (len(unique_labels), 3))
 
         for label, color in zip(unique_labels, colors):
-            segment_vis[self.segments == label] = color
+            vis[segments == label] = color
 
-        cv2.imwrite(str(segments_dir / f"{self.image_id}_segments.jpg"), segment_vis)
+        return vis
+
+    def compare_edges(
+        self,
+        show_plot: bool = True,
+        save_plot: bool = True,
+        output_path: str = "results",
+    ) -> Dict:
+        """
+        Compare Sobel and Canny edge detection results.
+
+        Returns:
+            Dictionary containing comparison metrics
+        """
+        if self.image is None:
+            raise ValueError("No image loaded")
+
+        output_base = Path(output_path)
+
+        # Process with Sobel
+        sobel_edges = self.detect_edges_sobel(ksize=3)
+        sobel_segments = self.segment_image(threshold=128, min_region_size=100)
+        sobel_vis = self.create_segment_visualization(sobel_segments)
+
+        # Save Sobel results in original structure
+        edges_dir = output_base / "edges" / "sobel"
+        segments_dir = output_base / "segments" / "sobel"
+        edges_dir.mkdir(parents=True, exist_ok=True)
+        segments_dir.mkdir(parents=True, exist_ok=True)
+
+        cv2.imwrite(str(edges_dir / f"{self.image_id}_edges.jpg"), sobel_edges)
+        cv2.imwrite(str(segments_dir / f"{self.image_id}_segments.jpg"), sobel_vis)
+
+        # Process with Canny
+        canny_edges = self.detect_edges_canny(100, 200)
+        canny_segments = self.segment_image(threshold=128, min_region_size=100)
+        canny_vis = self.create_segment_visualization(canny_segments)
+
+        # Save Canny results in original structure
+        edges_dir = output_base / "edges" / "canny"
+        segments_dir = output_base / "segments" / "canny"
+        edges_dir.mkdir(parents=True, exist_ok=True)
+        segments_dir.mkdir(parents=True, exist_ok=True)
+
+        cv2.imwrite(str(edges_dir / f"{self.image_id}_edges.jpg"), canny_edges)
+        cv2.imwrite(str(segments_dir / f"{self.image_id}_segments.jpg"), canny_vis)
+
+        # Calculate comparison metrics
+        metrics = {
+            "sobel_edge_density": np.mean(sobel_edges > 0),
+            "canny_edge_density": np.mean(canny_edges > 0),
+            "sobel_segments": len(np.unique(sobel_segments)),
+            "canny_segments": len(np.unique(canny_segments)),
+        }
+
+        if show_plot or save_plot:
+            plt.figure(figsize=(15, 10))
+
+            # Original image
+            plt.subplot(2, 3, 1)
+            plt.imshow(cv2.cvtColor(self.image, cv2.COLOR_BGR2RGB))
+            plt.title("Original Image")
+            plt.axis("off")
+
+            # Sobel results
+            plt.subplot(2, 3, 2)
+            plt.imshow(sobel_edges, cmap="gray")
+            plt.title(f"Sobel Edges\nDensity: {metrics['sobel_edge_density']:.3f}")
+            plt.axis("off")
+
+            plt.subplot(2, 3, 3)
+            plt.imshow(cv2.cvtColor(sobel_vis, cv2.COLOR_BGR2RGB))
+            plt.title(f"Sobel Segments\nCount: {metrics['sobel_segments']}")
+            plt.axis("off")
+
+            # Canny results
+            plt.subplot(2, 3, 5)
+            plt.imshow(canny_edges, cmap="gray")
+            plt.title(f"Canny Edges\nDensity: {metrics['canny_edge_density']:.3f}")
+            plt.axis("off")
+
+            plt.subplot(2, 3, 6)
+            plt.imshow(cv2.cvtColor(canny_vis, cv2.COLOR_BGR2RGB))
+            plt.title(f"Canny Segments\nCount: {metrics['canny_segments']}")
+            plt.axis("off")
+
+            plt.tight_layout()
+
+            if save_plot:
+                comparison_dir = Path("results") / "comparisons"
+                comparison_dir.mkdir(parents=True, exist_ok=True)
+                plt.savefig(str(comparison_dir / f"comparison_{self.image_id}.png"))
+
+            if show_plot:
+                plt.show()
+            else:
+                plt.close()
+
+        return metrics
 
 
 def process_dataset_sample(dataset_path: str, output_path: str, n_samples: int = 5):
     """
-    Process a sample of images from the dataset.
+    Process a sample of images from the dataset with comprehensive comparison.
 
     Args:
         dataset_path: Path to BSDS300 dataset
@@ -215,6 +262,19 @@ def process_dataset_sample(dataset_path: str, output_path: str, n_samples: int =
         n_samples: Number of sample images to process
     """
     segmenter = EdgeBasedSegmentation(dataset_path)
+    results = []
+
+    # Create all necessary directories
+    output_base = Path(output_path)
+    directories = [
+        output_base / "edges" / "sobel",
+        output_base / "edges" / "canny",
+        output_base / "segments" / "sobel",
+        output_base / "segments" / "canny",
+        output_base / "comparisons",
+    ]
+    for dir_path in directories:
+        dir_path.mkdir(parents=True, exist_ok=True)
 
     # Get list of image IDs from train directory
     train_dir = Path(dataset_path) / "BSDS300-images" / "images" / "train"
@@ -222,24 +282,36 @@ def process_dataset_sample(dataset_path: str, output_path: str, n_samples: int =
 
     for image_id in image_ids:
         print(f"Processing image {image_id}")
-
-        # Load image
         segmenter.load_image(image_id)
 
-        # Process with Sobel
-        segmenter.detect_edges_sobel(ksize=3)
-        segmenter.segment_image(threshold=128, min_region_size=100)
-        segmenter.save_results(output_path, "sobel")
+        # Run comparison and collect metrics (this now saves in both original and new structure)
+        metrics = segmenter.compare_edges(
+            show_plot=False, save_plot=True, output_path=output_path
+        )
+        metrics["image_id"] = image_id
+        results.append(metrics)
 
-        # Process with Canny
-        segmenter.detect_edges_canny(100, 200)
-        segmenter.segment_image(threshold=128, min_region_size=100)
-        segmenter.save_results(output_path, "canny")
+    # Create summary report
+    df = pd.DataFrame(results)
+    summary = df.describe()
+
+    # Save results
+    results_dir = Path(output_path)
+    results_dir.mkdir(parents=True, exist_ok=True)
+
+    df.to_csv(results_dir / "edge_detection_comparison.csv", index=False)
+    with open(results_dir / "summary_report.txt", "w") as f:
+        f.write("Edge Detection Comparison Summary\n")
+        f.write("================================\n\n")
+        f.write(str(summary))
+
+    return df, summary
 
 
 if __name__ == "__main__":
-    # Update these paths to match your setup
     DATASET_PATH = "data/BSDS300"
     OUTPUT_PATH = "results"
 
-    process_dataset_sample(DATASET_PATH, OUTPUT_PATH, n_samples=5)
+    df, summary = process_dataset_sample(DATASET_PATH, OUTPUT_PATH, n_samples=5)
+    print("\nSummary Statistics:")
+    print(summary)
