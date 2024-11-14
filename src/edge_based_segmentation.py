@@ -1,20 +1,84 @@
 import cv2
 import numpy as np
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List, Dict
+import os
+import glob
 
 
 class EdgeBasedSegmentation:
     """Basic implementation of edge-based segmentation using Sobel and Canny detectors."""
 
-    def __init__(self):
+    def __init__(self, base_path: str):
+        """
+        Initialize the segmentation class.
+
+        Args:
+            base_path: Base path to the BSDS300 dataset
+        """
+        self.base_path = Path(base_path)
         self.image = None
         self.edges = None
         self.segments = None
+        self.image_id = None
 
-    def load_image(self, image_path: str) -> None:
-        """Load an image from the specified path."""
-        self.image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+        # Validate dataset structure
+        self.validate_dataset_structure()
+
+    def validate_dataset_structure(self):
+        """Validate that the BSDS300 dataset structure exists."""
+        required_paths = [
+            self.base_path / "BSDS300-images" / "images" / "train",
+            self.base_path / "BSDS300-images" / "images" / "test",
+            self.base_path / "BSDS300-human" / "human" / "color",
+            self.base_path / "BSDS300-human" / "human" / "gray",
+        ]
+
+        for path in required_paths:
+            if not path.exists():
+                raise ValueError(f"Required dataset path not found: {path}")
+
+    def get_image_path(self, image_id: str) -> Path:
+        """Get the path to an image given its ID."""
+        # Check train directory
+        train_path = (
+            self.base_path / "BSDS300-images" / "images" / "train" / f"{image_id}.jpg"
+        )
+        if train_path.exists():
+            return train_path
+
+        # Check test directory
+        test_path = (
+            self.base_path / "BSDS300-images" / "images" / "test" / f"{image_id}.jpg"
+        )
+        if test_path.exists():
+            return test_path
+
+        raise ValueError(f"Image {image_id} not found in dataset")
+
+    def get_segmentation_paths(self, image_id: str) -> Dict[str, List[Path]]:
+        """Get paths to all ground truth segmentations for an image."""
+        seg_paths = {"color": [], "gray": []}
+
+        # Search in all annotator directories for both color and gray
+        for mode in ["color", "gray"]:
+            base_seg_path = self.base_path / "BSDS300-human" / "human" / mode
+            for annotator_dir in base_seg_path.glob(
+                "*"
+            ):  # iterate through numbered directories
+                if annotator_dir.is_dir():
+                    seg_file = annotator_dir / f"{image_id}.seg"
+                    if seg_file.exists():
+                        seg_paths[mode].append(seg_file)
+
+        return seg_paths
+
+    def load_image(self, image_id: str) -> None:
+        """Load an image and store its ID."""
+        image_path = self.get_image_path(image_id)
+        self.image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
+        self.image_id = image_id
+
         if self.image is None:
             raise ValueError(f"Could not load image from {image_path}")
 
@@ -108,24 +172,29 @@ class EdgeBasedSegmentation:
         self.segments = markers
         return markers
 
-    def visualize_results(
-        self, output_path: Optional[str] = None
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    def save_results(self, output_base_path: str, method: str) -> None:
         """
-        Visualize edge detection and segmentation results.
+        Save detection and segmentation results.
 
         Args:
-            output_path: Optional path to save visualization
-        Returns:
-            Tuple of (edge visualization, segmentation visualization)
+            output_base_path: Base path for saving results
+            method: Name of the method used (e.g., 'sobel', 'canny')
         """
         if self.edges is None or self.segments is None:
             raise ValueError("Run edge detection and segmentation first")
 
-        # Edge visualization
-        edge_vis = cv2.cvtColor(self.edges, cv2.COLOR_GRAY2BGR)
+        # Create output directories
+        output_base = Path(output_base_path)
+        edges_dir = output_base / "edges" / method
+        segments_dir = output_base / "segments" / method
+        edges_dir.mkdir(parents=True, exist_ok=True)
+        segments_dir.mkdir(parents=True, exist_ok=True)
 
-        # Segmentation visualization
+        # Save edge detection result
+        edge_vis = cv2.cvtColor(self.edges, cv2.COLOR_GRAY2BGR)
+        cv2.imwrite(str(edges_dir / f"{self.image_id}_edges.jpg"), edge_vis)
+
+        # Save segmentation result
         segment_vis = np.zeros_like(self.image)
         unique_labels = np.unique(self.segments)
         colors = np.random.randint(0, 255, (len(unique_labels), 3))
@@ -133,31 +202,44 @@ class EdgeBasedSegmentation:
         for label, color in zip(unique_labels, colors):
             segment_vis[self.segments == label] = color
 
-        if output_path:
-            cv2.imwrite(f"{output_path}_edges.jpg", edge_vis)
-            cv2.imwrite(f"{output_path}_segments.jpg", segment_vis)
-
-        return edge_vis, segment_vis
+        cv2.imwrite(str(segments_dir / f"{self.image_id}_segments.jpg"), segment_vis)
 
 
-def main():
-    """Example usage of the EdgeBasedSegmentation class."""
-    segmenter = EdgeBasedSegmentation()
+def process_dataset_sample(dataset_path: str, output_path: str, n_samples: int = 5):
+    """
+    Process a sample of images from the dataset.
 
-    # Load image
-    image_path = "path/to/your/image.jpg"  # Update with actual image path
-    segmenter.load_image(image_path)
+    Args:
+        dataset_path: Path to BSDS300 dataset
+        output_path: Path for saving results
+        n_samples: Number of sample images to process
+    """
+    segmenter = EdgeBasedSegmentation(dataset_path)
 
-    # Detect edges using both methods
-    edges_sobel = segmenter.detect_edges_sobel(ksize=3)
-    edges_canny = segmenter.detect_edges_canny(100, 200)
+    # Get list of image IDs from train directory
+    train_dir = Path(dataset_path) / "BSDS300-images" / "images" / "train"
+    image_ids = [p.stem for p in train_dir.glob("*.jpg")][:n_samples]
 
-    # Perform segmentation using Canny edges
-    segments = segmenter.segment_image(threshold=128, min_region_size=100)
+    for image_id in image_ids:
+        print(f"Processing image {image_id}")
 
-    # Visualize results
-    edge_vis, segment_vis = segmenter.visualize_results("output")
+        # Load image
+        segmenter.load_image(image_id)
+
+        # Process with Sobel
+        segmenter.detect_edges_sobel(ksize=3)
+        segmenter.segment_image(threshold=128, min_region_size=100)
+        segmenter.save_results(output_path, "sobel")
+
+        # Process with Canny
+        segmenter.detect_edges_canny(100, 200)
+        segmenter.segment_image(threshold=128, min_region_size=100)
+        segmenter.save_results(output_path, "canny")
 
 
 if __name__ == "__main__":
-    main()
+    # Update these paths to match your setup
+    DATASET_PATH = "data/BSDS300"
+    OUTPUT_PATH = "results"
+
+    process_dataset_sample(DATASET_PATH, OUTPUT_PATH, n_samples=5)

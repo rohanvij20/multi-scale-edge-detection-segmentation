@@ -1,6 +1,6 @@
 # Multi-Scale Edge Detection and Segmentation
 
-A computer vision project implementing and comparing different edge detection algorithms and using them as a basis for image segmentation.
+A computer vision project implementing and comparing different edge detection algorithms and using them as a basis for image segmentation using the Berkeley Segmentation Dataset (BSDS300).
 
 ## Project Overview
 
@@ -8,23 +8,36 @@ This project implements basic edge detection and segmentation algorithms, focusi
 - Multiple edge detection algorithms (Sobel, Canny)
 - Basic segmentation using edge information
 - Evaluation using the Berkeley Segmentation Dataset (BSDS300)
+- Comparison of different edge detection approaches
 
 ## Project Structure
 
 ```
-computer_vision_project/
+multi-scale-edge-detection-segmentation/
 ├── src/
 │   ├── __init__.py
 │   └── edge_based_segmentation.py
 ├── data/
 │   └── BSDS300/
 │       ├── BSDS300-human/
+│       │   └── human/
+│       │       ├── color/
+│       │       │   └── [1102-1132]/
+│       │       └── gray/
+│       │           └── [1102-1132]/
 │       └── BSDS300-images/
-├── tests/
-│   └── test_edge_based_segmentation.py
+│           ├── images/
+│           │   ├── test/
+│           │   └── train/
+│           ├── iids_test.txt
+│           └── iids_train.txt
 ├── results/
 │   ├── edges/
+│   │   ├── sobel/
+│   │   └── canny/
 │   └── segments/
+│       ├── sobel/
+│       └── canny/
 └── README.md
 ```
 
@@ -32,7 +45,7 @@ computer_vision_project/
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/multi-scale-edge-detection-segmentation.git
+git clone https://github.com/rohanvij/multi-scale-edge-detection-segmentation.git
 cd multi-scale-edge-detection-segmentation
 ```
 
@@ -41,47 +54,81 @@ cd multi-scale-edge-detection-segmentation
 pip install opencv-python numpy
 ```
 
-3. Download the BSDS300 dataset and place it in the `data` directory.
+3. Place the BSDS300 dataset in the `data` directory, maintaining the structure shown above.
 
 ## Usage
 
-Basic usage example:
-
+### Basic Usage
 ```python
 from src.edge_based_segmentation import EdgeBasedSegmentation
 
-# Initialize segmenter
+# Initialize segmenter with dataset path
 segmenter = EdgeBasedSegmentation("data/BSDS300")
 
-# Load and process an image
-segmenter.load_bsds_image("100075")  # Using image ID from dataset
+# Load and process a single image
+segmenter.load_image("100075")  # Using image ID from dataset
 edges = segmenter.detect_edges_canny()  # or detect_edges_sobel()
 segments = segmenter.segment_image()
-edge_vis, segment_vis = segmenter.visualize_results("results/output")
+segmenter.save_results("results", "canny")
+```
+
+### Process Multiple Images
+```python
+from src.edge_based_segmentation import process_dataset_sample
+
+# Process 5 sample images with both Sobel and Canny
+process_dataset_sample(
+    dataset_path="data/BSDS300",
+    output_path="results",
+    n_samples=5
+)
 ```
 
 ## Features
 
 ### Edge Detection
-- Sobel edge detector with adjustable kernel size
-- Canny edge detector with adjustable thresholds
+- Sobel edge detector
+  - Adjustable kernel size (3, 5, 7)
+  - Gradient magnitude computation
+  - Automatic normalization
+- Canny edge detector
+  - Adjustable hysteresis thresholds
+  - Built-in noise reduction
+  - Non-maximum suppression
 
 ### Segmentation
-- Basic region-growing approach using edge information
+- Edge-based region growing
+- Watershed segmentation approach
 - Minimum region size filtering
-- Watershed-based segmentation
+- Connected components labeling
 
-### Visualization
-- Edge detection visualization
-- Segmentation results visualization
-- Option to save results to files
+### Results Organization
+- Separate directories for edge detection and segmentation results
+- Method-specific subdirectories (sobel/canny)
+- Consistent naming convention for output files
+
+## Output Structure
+```
+results/
+├── edges/
+│   ├── sobel/
+│   │   └── {image_id}_edges.jpg
+│   └── canny/
+│       └── {image_id}_edges.jpg
+└── segments/
+    ├── sobel/
+    │   └── {image_id}_segments.jpg
+    └── canny/
+        └── {image_id}_segments.jpg
+```
 
 ## Team Members
-- Guneet Sachdeva (Project Lead)
-- Rohan Vij
-- Akshay Murali
-- Armandeep Singh
+- Guneet Sachdeva (Project Lead, Edge Detection Algorithms)
+- Rohan Vij (Dataset Integration, Result Analysis)
+- Akshay Murali (Segmentation Implementation)
+- Armandeep Singh (Result Visualization)
 
 ## References
-1. Canny, J. (1986). A Computational Approach to Edge Detection. IEEE Transactions on Pattern Analysis and Machine Intelligence
-2. Martin, D., Fowlkes, C., Tal, D., & Malik, J. (2001). A database of human segmented natural images and its application to evaluating segmentation algorithms and measuring ecological statistics
+1. Canny, J. (1986). A Computational Approach to Edge Detection. IEEE Transactions on Pattern Analysis and Machine Intelligence, PAMI-8(6), 679-698.
+2. Martin, D., Fowlkes, C., Tal, D., & Malik, J. (2001). A database of human segmented natural images and its application to evaluating segmentation algorithms and measuring ecological statistics. In Proceedings Eighth IEEE International Conference on Computer Vision.
+3. Berkeley Segmentation Dataset (BSDS300): https://www2.eecs.berkeley.edu/Research/Projects/CS/vision/bsds/
