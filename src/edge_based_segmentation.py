@@ -79,19 +79,34 @@ class EdgeBasedSegmentation:
         if self.image is None:
             raise ValueError("No image loaded")
 
-        gray = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (ksize, ksize), 0)
+        image = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+        h, w  = image.shape
+        edges = np.zeros(image.shape)
 
-        grad_x = cv2.Sobel(blurred, cv2.CV_64F, 1, 0, ksize=ksize)
-        grad_y = cv2.Sobel(blurred, cv2.CV_64F, 0, 1, ksize=ksize)
+        Gx = np.array([[-1, 0, 1],
+                       [-2, 0, 2],
+                       [-1, 0, 1]], dtype=np.float32)
 
-        magnitude = np.sqrt(grad_x**2 + grad_y**2)
-        magnitude = cv2.normalize(magnitude, None, 0, 255, cv2.NORM_MINMAX).astype(
-            np.uint8
-        )
+        Gy = np.array([[ 1,  2,  1],
+                       [ 0,  0,  0],
+                       [-1, -2, -1]], dtype=np.float32)
 
-        self.edges = magnitude
-        return magnitude
+        for y in range(h):
+            if ((y == 0) or (y == h - 1)):
+                continue
+            for x in range(w):
+                if ((x == 0) or (x == w - 1)):
+                    continue
+                seg = image[y-1:y+2, x-1:x+2]
+                gx  = np.sum(seg * Gx)
+                gy  = np.sum(seg * Gy)
+                mag = np.sqrt(gx ** 2 + gy ** 2)
+                edges[y,x] = mag
+
+        edges = (edges - np.min(edges)) / (np.max(edges) - np.min(edges))
+
+        self.edges = edges
+        return edges
 
     def detect_edges_canny(
         self, low_threshold: int = 100, high_threshold: int = 200
