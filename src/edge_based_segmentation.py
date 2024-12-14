@@ -1,3 +1,4 @@
+import collections
 import cv2
 import numpy as np
 from pathlib import Path
@@ -108,27 +109,122 @@ class EdgeBasedSegmentation:
         self.edges = edges
         return edges
 
-    def detect_edges_canny(
-        self, low_threshold: int = 100, high_threshold: int = 200
-    ) -> np.ndarray:
+    def detect_edges_canny(self, low_threshold: int = 10, high_threshold: int = 20) -> np.ndarray:
         """
-        Detect edges using Canny edge detector.
+        Detect edges using canny.
 
         Args:
             low_threshold: Lower threshold for hysteresis
             high_threshold: Higher threshold for hysteresis
         Returns:
-            Binary edge image
+            Edge Image
         """
         if self.image is None:
             raise ValueError("No image loaded")
 
+        h, w, _ = self.image.shape
         gray = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges = cv2.Canny(blurred, low_threshold, high_threshold)
 
-        self.edges = edges
-        return edges
+        # gaussian blur
+        gauss_kernel = np.array([[1, 2, 1],
+                                [2, 4, 2],
+                                [1, 2, 1]], dtype=np.float32) / 16.0
+        blurred = np.zeros_like(gray, dtype=np.float32)
+
+        for y in range(1, h - 1):
+            for x in range(1, w - 1):
+                region = gray[y - 1 : y + 2, x - 1 : x + 2]
+                blurred[y, x] = np.sum(region * gauss_kernel)
+
+        # sobel gradients
+        Gx = np.array([[-1, 0,  1],
+                    [-2, 0,  2],
+                    [-1, 0,  1]], dtype=np.float32)
+        Gy = np.array([[ 1,  2,  1],
+                    [ 0,  0,  0],
+                    [-1, -2, -1]], dtype=np.float32)
+
+        gradient_magnitude = np.zeros_like(blurred, dtype=np.float32)
+        gradient_direction = np.zeros_like(blurred, dtype=np.float32)
+
+        for y in range(1, h - 1):
+            for x in range(1, w - 1):
+                patch = blurred[y - 1 : y + 2, x - 1 : x + 2]
+                gx = np.sum(patch * Gx)
+                gy = np.sum(patch * Gy)
+
+                mag = np.sqrt(gx**2 + gy**2)
+                gradient_magnitude[y, x] = mag
+
+                angle = np.arctan2(gy, gx) * (180.0 / np.pi)  # in degrees
+                if angle < 0:
+                    angle += 180
+                gradient_direction[y, x] = angle
+
+        # normalize gradient magnitude
+        gmin, gmax = gradient_magnitude.min(), gradient_magnitude.max()
+        if gmax - gmin > 1e-5:
+            gradient_magnitude = (gradient_magnitude - gmin) / (gmax - gmin) * 255
+        else:
+            gradient_magnitude[:] = 0
+
+        # NMS
+        nms = np.zeros_like(gradient_magnitude, dtype=np.float32)
+        for y in range(1, h - 1):
+            for x in range(1, w - 1):
+                angle = gradient_direction[y, x]
+                mag = gradient_magnitude[y, x]
+
+                if (0 <= angle < 22.5) or (157.5 <= angle <= 180):
+                    q = gradient_magnitude[y, x + 1]
+                    r = gradient_magnitude[y, x - 1]
+                elif 22.5 <= angle < 67.5:
+                    q = gradient_magnitude[y - 1, x + 1]
+                    r = gradient_magnitude[y + 1, x - 1]
+                elif 67.5 <= angle < 112.5:
+                    q = gradient_magnitude[y - 1, x]
+                    r = gradient_magnitude[y + 1, x]
+                else:  
+                    q = gradient_magnitude[y - 1, x - 1]
+                    r = gradient_magnitude[y + 1, x + 1]
+
+                if mag >= q and mag >= r:
+                    nms[y, x] = mag
+                else:
+                    nms[y, x] = 0
+
+        # double threshold
+        strong = (nms >= high_threshold).astype(np.uint8)
+        weak   = ((nms >= low_threshold) & (nms < high_threshold)).astype(np.uint8)
+
+        # hysteresis 
+        edges = np.zeros_like(strong, dtype=np.uint8)
+        visited = np.zeros_like(strong, dtype=np.uint8)
+
+        # for BFS we store strong edge locations in a queue
+        queue = collections.deque()
+        strong_coords = np.argwhere(strong == 1)
+        for r, c in strong_coords:
+            queue.append((r, c))
+            visited[r, c] = 1
+            edges[r, c] = 1
+
+        # if neighbor is weak, it becomes strong (edge=1).
+        while queue:
+            r, c = queue.popleft()
+            for nr in range(r - 1, r + 2):
+                for nc in range(c - 1, c + 2):
+                    if 0 <= nr < h and 0 <= nc < w:
+                        if weak[nr, nc] == 1 and visited[nr, nc] == 0:
+                            visited[nr, nc] = 1
+                            edges[nr, nc] = 1
+                            queue.append((nr, nc))
+
+        edges = edges * 255
+
+        self.edges = edges.astype(np.uint8)
+        return self.edges
+
 
     def segment_image(
         self, threshold: int = 128, min_region_size: int = 100
@@ -200,7 +296,7 @@ class EdgeBasedSegmentation:
         cv2.imwrite(str(segments_dir / f"{self.image_id}_segments.jpg"), sobel_vis)
 
         # Process with Canny
-        canny_edges = self.detect_edges_canny(100, 200)
+        canny_edges = self.detect_edges_canny(10, 20)
         canny_segments = self.segment_image(threshold=128, min_region_size=100)
         canny_vis = self.create_segment_visualization(canny_segments)
 
@@ -324,7 +420,7 @@ def process_dataset_sample(dataset_path: str, output_path: str, n_samples: int =
 
 
 if __name__ == "__main__":
-    DATASET_PATH = "data/BSDS300"
+    DATASET_PATH = "../data/BSDS300"
     OUTPUT_PATH = "results"
 
     df, summary = process_dataset_sample(DATASET_PATH, OUTPUT_PATH, n_samples=5)
