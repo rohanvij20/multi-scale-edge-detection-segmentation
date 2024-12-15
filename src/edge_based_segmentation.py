@@ -436,7 +436,7 @@ class EdgeBasedSegmentation:
         output_path: str = "results",
     ) -> Dict:
         """
-        Compare Sobel and Canny edge detection results.
+        Compare Sobel, Canny, and Multi-scale edge detection results.
 
         Args:
             show_plot: Whether to display the plot
@@ -445,12 +445,11 @@ class EdgeBasedSegmentation:
 
         Returns:
             Dictionary containing comparison metrics
-
-        Raises:
-            ValueError: If no image is loaded
         """
         if self.image is None:
             raise ValueError("No image loaded")
+
+        output_base = Path(output_path)
 
         # Process with Sobel
         sobel_edges = self.detect_edges_sobel(ksize=3)
@@ -462,26 +461,93 @@ class EdgeBasedSegmentation:
         canny_segments = self.segment_image(threshold=128, min_region_size=100)
         canny_vis = self.create_segment_visualization(canny_segments)
 
+        # Process with Multi-scale detector
+        from src.advanced_edge_detection import MultiscaleDetector
+
+        ms_detector = MultiscaleDetector(output_path=output_path)
+        ms_edges = ms_detector.detect(self.image)
+        self.edges = (ms_edges * 255).astype(np.uint8)  # Set for segmentation
+        ms_segments = self.segment_image(threshold=128, min_region_size=100)
+        ms_vis = self.create_segment_visualization(ms_segments)
+
+        # Save Sobel results
+        edges_dir = output_base / "edges" / "sobel"
+        segments_dir = output_base / "segments" / "sobel"
+        edges_dir.mkdir(parents=True, exist_ok=True)
+        segments_dir.mkdir(parents=True, exist_ok=True)
+
+        cv2.imwrite(str(edges_dir / f"{self.image_id}_edges.jpg"), sobel_edges)
+        cv2.imwrite(str(segments_dir / f"{self.image_id}_segments.jpg"), sobel_vis)
+
+        # Save Canny results
+        edges_dir = output_base / "edges" / "canny"
+        segments_dir = output_base / "segments" / "canny"
+        edges_dir.mkdir(parents=True, exist_ok=True)
+        segments_dir.mkdir(parents=True, exist_ok=True)
+
+        cv2.imwrite(str(edges_dir / f"{self.image_id}_edges.jpg"), canny_edges)
+        cv2.imwrite(str(segments_dir / f"{self.image_id}_segments.jpg"), canny_vis)
+
         # Calculate comparison metrics
-        metrics = self._calculate_metrics(
-            sobel_edges, canny_edges, sobel_segments, canny_segments
-        )
+        metrics = {
+            "sobel_edge_density": np.mean(sobel_edges > 0),
+            "canny_edge_density": np.mean(canny_edges > 0),
+            "multiscale_edge_density": np.mean(ms_edges > 0.1),
+            "sobel_segments": len(np.unique(sobel_segments)),
+            "canny_segments": len(np.unique(canny_segments)),
+            "multiscale_segments": len(np.unique(ms_segments)),
+        }
 
-        # Save results
-        self._save_results(output_path, sobel_edges, canny_edges, sobel_vis, canny_vis)
-
-        # Create visualization if needed
         if show_plot or save_plot:
-            self._create_visualization(
-                metrics,
-                sobel_edges,
-                canny_edges,
-                sobel_vis,
-                canny_vis,
-                show_plot,
-                save_plot,
-                output_path,
+            plt.figure(figsize=(20, 10))
+
+            # Original image
+            plt.subplot(2, 3, 1)
+            plt.imshow(cv2.cvtColor(self.image, cv2.COLOR_BGR2RGB))
+            plt.title("Original Image")
+            plt.axis("off")
+
+            # Sobel results
+            plt.subplot(2, 3, 2)
+            plt.imshow(sobel_edges, cmap="gray")
+            plt.title(f"Sobel Edges\nDensity: {metrics['sobel_edge_density']:.3f}")
+            plt.axis("off")
+
+            plt.subplot(2, 3, 3)
+            plt.imshow(cv2.cvtColor(sobel_vis, cv2.COLOR_BGR2RGB))
+            plt.title(f"Sobel Segments\nCount: {metrics['sobel_segments']}")
+            plt.axis("off")
+
+            # Canny results
+            plt.subplot(2, 3, 4)
+            plt.imshow(canny_edges, cmap="gray")
+            plt.title(f"Canny Edges\nDensity: {metrics['canny_edge_density']:.3f}")
+            plt.axis("off")
+
+            plt.subplot(2, 3, 5)
+            plt.imshow(cv2.cvtColor(canny_vis, cv2.COLOR_BGR2RGB))
+            plt.title(f"Canny Segments\nCount: {metrics['canny_segments']}")
+            plt.axis("off")
+
+            # Multi-scale results
+            plt.subplot(2, 3, 6)
+            plt.imshow(ms_edges, cmap="gray")
+            plt.title(
+                f"Multi-scale Edges\nDensity: {metrics['multiscale_edge_density']:.3f}"
             )
+            plt.axis("off")
+
+            plt.tight_layout()
+
+            if save_plot:
+                comparison_dir = Path("results") / "comparisons"
+                comparison_dir.mkdir(parents=True, exist_ok=True)
+                plt.savefig(str(comparison_dir / f"comparison_{self.image_id}.png"))
+
+            if show_plot:
+                plt.show()
+            else:
+                plt.close()
 
         return metrics
 

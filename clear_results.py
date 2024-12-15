@@ -118,28 +118,59 @@ class ResultsCleaner:
 
 
 def clear_results(results_dir: str = "results") -> None:
-    """
-    Clear all results directories while maintaining the structure.
+    """Clear all results directories while maintaining the structure."""
+    results_path = Path(results_dir)
 
-    Args:
-        results_dir: Base directory for results
-    """
-    cleaner = ResultsCleaner(results_dir)
+    # Define all directories to maintain
+    directories = [
+        # Original structure
+        results_path / "edges" / "sobel",
+        results_path / "edges" / "canny",
+        results_path / "segments" / "sobel",
+        results_path / "segments" / "canny",
+        # Comparison structure
+        results_path / "comparisons",
+        # Multi-scale structure
+        results_path / "advanced_edges" / "multiscale" / "edges",
+        results_path / "advanced_edges" / "multiscale" / "visualizations",
+    ]
 
-    try:
-        # Clear directories and get statistics
-        stats = cleaner.clear_directories()
+    # Files to remove
+    files_to_remove = [
+        results_path / "edge_detection_comparison.csv",
+        results_path / "summary_report.txt",
+        results_path / "parameter_results.csv",
+        # Multi-scale results
+        results_path / "advanced_edges" / "multiscale" / "results.csv",
+    ]
 
-        # Print summary
-        print(f"\nCleared all results in {results_dir}/")
-        print(f"Cleared {stats['directories']} directories and {stats['files']} files")
+    # Remove and recreate directories
+    for dir_path in directories:
+        if dir_path.exists():
+            print(f"Clearing directory: {dir_path}")
+            shutil.rmtree(dir_path)
+        dir_path.mkdir(parents=True, exist_ok=True)
 
-        # Print directory structure
-        cleaner.print_directory_structure()
+    # Remove result files
+    for file_path in files_to_remove:
+        if file_path.exists():
+            print(f"Removing file: {file_path}")
+            file_path.unlink()
 
-    except Exception as e:
-        print(f"Error clearing results: {str(e)}", file=sys.stderr)
-        sys.exit(1)
+    print(f"\nCleared all results in {results_dir}/")
+    print("\nRecreated directory structure:")
+    print("└── results/")
+    print("    ├── edges/")
+    print("    │   ├── sobel/")
+    print("    │   └── canny/")
+    print("    ├── segments/")
+    print("    │   ├── sobel/")
+    print("    │   └── canny/")
+    print("    ├── comparisons/")
+    print("    └── advanced_edges/")
+    print("        └── multiscale/")
+    print("            ├── edges/")
+    print("            └── visualizations/")
 
 
 def main():
