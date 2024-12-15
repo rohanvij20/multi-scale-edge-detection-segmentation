@@ -4,13 +4,13 @@ A computer vision project implementing and comparing different edge detection al
 
 ## Project Overview
 
-This project implements comprehensive edge detection and segmentation algorithms, focusing on:
-- Multiple edge detection algorithms (Sobel, Canny, LoG)
+This project implements edge detection and segmentation algorithms, focusing on:
+- Multiple edge detection algorithms (Sobel, Canny)
 - Advanced multi-scale edge detection approach
-- Basic and advanced segmentation techniques
+- Basic segmentation using edge information
 - Evaluation using the Berkeley Segmentation Dataset (BSDS300)
-- Comprehensive comparison and evaluation metrics
-- Interactive segmentation interface
+- Comprehensive comparison of different edge detection approaches
+- Visualization and metrics for algorithm comparison
 
 ## Project Structure
 
@@ -19,18 +19,7 @@ multi-scale-edge-detection-segmentation/
 ├── src/
 │   ├── advanced_edge_detection/
 │   │   ├── __init__.py
-│   │   ├── log_detector.py
-│   │   └── multiscale_detector.py
-│   ├── advanced_segmentation/
-│   │   ├── __init__.py
-│   │   ├── region_growing.py
-│   │   └── watershed.py
-│   ├── evaluation/
-│   │   ├── __init__.py
-│   │   └── metrics.py
-│   ├── ui/
-│   │   ├── __init__.py
-│   │   └── interactive_segmentation.py
+│   │   └── multiscale_detector.py        # Multi-scale implementation
 │   ├── edge_based_segmentation.py
 │   ├── clear_results.py
 │   └── zip_results.py
@@ -46,35 +35,24 @@ multi-scale-edge-detection-segmentation/
 │           │   └── train/
 │           ├── iids_test.txt
 │           └── iids_train.txt
+├── tests/
+│   ├── test_advanced_edge_detection/
+│   │   └── test_multiscale_detector.py   # Multi-scale tests
+│   └── test_edge_based_segmentation.py
 ├── results/
 │   ├── edges/
 │   │   ├── sobel/
 │   │   └── canny/
 │   ├── advanced_edges/
-│   │   ├── log/
 │   │   └── multiscale/
+│   │       ├── edges/          # Multi-scale edge detection results
+│   │       └── visualizations/ # Multi-scale visualizations
 │   ├── segments/
 │   │   ├── sobel/
 │   │   └── canny/
-│   ├── advanced_segments/
-│   │   ├── watershed/
-│   │   └── region_growing/
-│   ├── evaluation/
-│   │   ├── metrics/
-│   │   └── benchmarks/
 │   ├── comparisons/
 │   ├── edge_detection_comparison.csv
 │   └── summary_report.txt
-├── tests/
-│   ├── test_advanced_edge_detection/
-│   │   ├── test_log_detector.py
-│   │   └── test_multiscale_detector.py
-│   ├── test_advanced_segmentation/
-│   │   ├── test_region_growing.py
-│   │   └── test_watershed.py
-│   ├── test_evaluation/
-│   │   └── test_metrics.py
-│   └── test_edge_based_segmentation.py
 ├── archives/
 │   └── edge_detection_results_{timestamp}.zip
 └── README.md
@@ -93,7 +71,12 @@ cd multi-scale-edge-detection-segmentation
 pip install opencv-python numpy pandas matplotlib scikit-learn
 ```
 
-3. Place the BSDS300 dataset in the `data` directory, maintaining the structure shown above.
+3. Set up Python path:
+```bash
+export PYTHONPATH="/path/to/multi-scale-edge-detection-segmentation:$PYTHONPATH"
+```
+
+4. Place the BSDS300 dataset in the `data` directory.
 
 ## Usage
 
@@ -109,61 +92,45 @@ segmenter.load_image("100075")
 metrics = segmenter.compare_edges(show_plot=True)
 ```
 
-### Advanced Edge Detection
+### Multi-scale Edge Detection
 ```python
-from src.advanced_edge_detection.log_detector import LoGDetector
-from src.advanced_edge_detection.multiscale_detector import MultiscaleDetector
+from src.advanced_edge_detection import MultiscaleDetector
 
-# Laplacian of Gaussian detection
-log_detector = LoGDetector(sigma=1.0)
-log_edges = log_detector.detect(image)
+# Initialize detector with custom parameters
+detector = MultiscaleDetector(
+    scales=[0.5, 1.0, 2.0],
+    gaussian_sizes=[3, 5, 7],
+    gaussian_sigmas=[1.0, 1.4, 2.0]
+)
 
-# Multi-scale detection
-multiscale_detector = MultiscaleDetector(scales=[0.5, 1.0, 2.0])
-multiscale_edges = multiscale_detector.detect(image)
+# Process single image
+result = detector.detect(image, method='weighted')
+
+# Process entire dataset
+results_df = detector.process_dataset(
+    "data/BSDS300",
+    subset='all',      # Process both train and test sets
+    n_samples=None     # Process all images
+)
 ```
 
-### Advanced Segmentation
-```python
-from src.advanced_segmentation.watershed import WatershedSegmentation
-from src.advanced_segmentation.region_growing import RegionGrowing
-
-# Watershed segmentation
-watershed_seg = WatershedSegmentation()
-watershed_result = watershed_seg.segment(image, markers)
-
-# Region growing
-region_growing = RegionGrowing(threshold=128, min_region_size=100)
-regions = region_growing.segment(image)
-```
-
-### Process Multiple Images
+### Process Multiple Images with Comparison
 ```python
 from src.edge_based_segmentation import process_dataset_sample
 
-# Process all images with comprehensive comparison
+# Process dataset with comprehensive comparison
 df, summary = process_dataset_sample(
     dataset_path="data/BSDS300",
     output_path="results",
-    n_samples=None,  # Process all images
+    n_samples=None,    # Process all images
     include_test=True  # Include test set
 )
 ```
 
-### Advanced Evaluation
-```python
-from src.evaluation.metrics import AdvancedMetrics
-
-metrics = AdvancedMetrics()
-iou_score = metrics.calculate_iou(predicted, ground_truth)
-f1_score = metrics.calculate_boundary_f1(predicted, ground_truth)
-precision, recall = metrics.calculate_precision_recall(predicted, ground_truth)
-```
-
 ### Utilities
 ```bash
-# Clear all results (with options)
-python clear_results.py --results-dir custom_results --quiet
+# Clear all results
+python clear_results.py
 
 # Archive results
 python zip_results.py
@@ -172,69 +139,66 @@ python zip_results.py
 ## Features
 
 ### Edge Detection
-- Basic Edge Detectors
-  - Sobel edge detector (adjustable kernel size)
-  - Canny edge detector (adjustable thresholds)
-- Advanced Edge Detectors
-  - Laplacian of Gaussian (LoG)
-  - Multi-scale detection approach
+1. Basic Edge Detectors:
+   - Sobel edge detector
+     - Adjustable kernel size (3, 5, 7)
+     - Gradient magnitude computation
+     - Automatic normalization
+   - Canny edge detector
+     - Adjustable hysteresis thresholds
+     - Built-in noise reduction
+     - Non-maximum suppression
+
+2. Multi-scale Edge Detection:
+   - Multiple scale processing (0.5x, 1.0x, 2.0x)
+   - Scale-specific Gaussian smoothing
+   - Weighted combination of scales
+   - Automatic scale normalization
+   - Comprehensive edge strength analysis
 
 ### Segmentation
-- Basic Segmentation
-  - Edge-based segmentation
-  - Connected components labeling
-  - Region size filtering
-- Advanced Segmentation
-  - Watershed segmentation
-  - Region growing algorithm
+- Edge-based region growing
+- Minimum region size filtering
+- Connected components labeling
 
-### Evaluation
-- Basic Metrics
+### Comparison and Analysis
+- Side-by-side visualization of methods
+- Quantitative metrics:
   - Edge density
-  - Segment count
+  - Number of segments
   - Mean edge strength
-- Advanced Metrics
-  - Intersection over Union (IoU)
-  - Boundary F1 score
-  - Precision and recall
+  - Scale-specific metrics
+- Statistical summaries
+- CSV reports for detailed analysis
 
 ### Results Organization
 ```
 results/
 ├── edges/                      # Basic edge detection results
-├── advanced_edges/             # Advanced edge detection results
-├── segments/                   # Basic segmentation results
-├── advanced_segments/          # Advanced segmentation results
-├── evaluation/                 # Evaluation metrics and benchmarks
-├── comparisons/               # Visual comparisons
-└── summary_report.txt         # Comprehensive analysis
+│   ├── sobel/
+│   └── canny/
+├── advanced_edges/
+│   └── multiscale/            # Multi-scale results
+│       ├── edges/             # Edge detection outputs
+│       └── visualizations/    # Multi-scale visualizations
+├── segments/                  # Segmentation results
+├── comparisons/              # Method comparisons
+├── edge_detection_comparison.csv
+└── summary_report.txt
 ```
 
-## Team Members and Responsibilities
+### Utilities
+- `clear_results.py`: Clear all results while maintaining directory structure
+- `zip_results.py`: Create timestamped archives of results
 
-- Guneet Sachdeva (Project Lead)
-  - Edge detection algorithms
-  - LoG implementation
-  - Overall architecture
-
-- Rohan Vij
-  - Dataset integration
-  - Multi-scale approach
-  - Results analysis
-
-- Akshay Murali
-  - Segmentation implementation
-  - Watershed algorithm
-  - Performance optimization
-
-- Armandeep Singh
-  - Result visualization
-  - Evaluation metrics
-  - Documentation
+## Team Members
+- Guneet Sachdeva (Project Lead, Edge Detection Algorithms)
+- Rohan Vij (Multi-scale Edge Detection, Dataset Integration)
+- Akshay Murali (Segmentation Implementation)
+- Armandeep Singh (Result Visualization)
 
 ## References
-
-1. Canny, J. (1986). A Computational Approach to Edge Detection. IEEE PAMI, 8(6), 679-698.
-2. Martin, D., et al. (2001). A Database of Human Segmented Natural Images and its Application.
-3. Lindeberg, T. (1998). Edge Detection and Ridge Detection with Automatic Scale Selection.
-4. Berkeley Segmentation Dataset: https://www2.eecs.berkeley.edu/Research/Projects/CS/vision/bsds/
+1. Canny, J. (1986). A Computational Approach to Edge Detection. IEEE Transactions on Pattern Analysis and Machine Intelligence, PAMI-8(6), 679-698.
+2. Martin, D., Fowlkes, C., Tal, D., & Malik, J. (2001). A database of human segmented natural images and its application to evaluating segmentation algorithms and measuring ecological statistics.
+3. Lindeberg, T. (1998). Edge detection and ridge detection with automatic scale selection. International Journal of Computer Vision, 30(2), 117-154.
+4. Berkeley Segmentation Dataset (BSDS300): https://www2.eecs.berkeley.edu/Research/Projects/CS/vision/bsds/
