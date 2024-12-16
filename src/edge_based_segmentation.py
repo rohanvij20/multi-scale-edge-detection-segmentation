@@ -5,6 +5,9 @@ from pathlib import Path
 from typing import Tuple, Optional, List, Dict, Union
 import matplotlib.pyplot as plt
 import pandas as pd
+from advanced_edge_detection import MultiscaleDetector, LoGDetector
+from advanced_segmentation import RegionGrowing
+from evaluation.metrics import SegmentationMetrics
 
 
 class EdgeBasedSegmentation:
@@ -108,16 +111,13 @@ class EdgeBasedSegmentation:
         if self.image is None:
             raise ValueError("No image loaded")
 
-        # Convert to grayscale
         image = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
         h, w = image.shape
         edges = np.zeros(image.shape)
 
-        # Define Sobel kernels
         Gx = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=np.float32)
         Gy = np.array([[1, 2, 1], [0, 0, 0], [-1, -2, -1]], dtype=np.float32)
 
-        # Apply Sobel operator
         for y in range(1, h - 1):
             for x in range(1, w - 1):
                 seg = image[y - 1 : y + 2, x - 1 : x + 2]
@@ -126,9 +126,7 @@ class EdgeBasedSegmentation:
                 mag = np.sqrt(gx**2 + gy**2)
                 edges[y, x] = mag
 
-        # Normalize edges to [0, 1]
         edges = (edges - np.min(edges)) / (np.max(edges) - np.min(edges))
-
         self.edges = edges
         return edges
 
@@ -200,7 +198,6 @@ class EdgeBasedSegmentation:
                 angle = gradient_direction[y, x]
                 mag = gradient_magnitude[y, x]
 
-                # Find adjacent pixels based on gradient direction
                 if (0 <= angle < 22.5) or (157.5 <= angle <= 180):
                     q = gradient_magnitude[y, x + 1]
                     r = gradient_magnitude[y, x - 1]
@@ -299,136 +296,6 @@ class EdgeBasedSegmentation:
 
         return vis
 
-    def _calculate_metrics(
-        self,
-        sobel_edges: np.ndarray,
-        canny_edges: np.ndarray,
-        sobel_segments: np.ndarray,
-        canny_segments: np.ndarray,
-    ) -> Dict:
-        """
-        Calculate comparison metrics between Sobel and Canny results.
-
-        Args:
-            sobel_edges: Sobel edge detection result
-            canny_edges: Canny edge detection result
-            sobel_segments: Sobel segmentation result
-            canny_segments: Canny segmentation result
-
-        Returns:
-            Dictionary containing comparison metrics
-        """
-        return {
-            "sobel_edge_density": np.mean(sobel_edges > 0),
-            "canny_edge_density": np.mean(canny_edges > 0),
-            "sobel_segments": len(np.unique(sobel_segments)),
-            "canny_segments": len(np.unique(canny_segments)),
-        }
-
-    def _save_results(
-        self,
-        output_path: Union[str, Path],
-        sobel_edges: np.ndarray,
-        canny_edges: np.ndarray,
-        sobel_vis: np.ndarray,
-        canny_vis: np.ndarray,
-    ) -> None:
-        """
-        Save edge detection and segmentation results.
-
-        Args:
-            output_path: Directory to save results
-            sobel_edges: Sobel edge detection result
-            canny_edges: Canny edge detection result
-            sobel_vis: Sobel segmentation visualization
-            canny_vis: Canny segmentation visualization
-        """
-        output_base = Path(output_path)
-
-        # Save Sobel results
-        edges_dir = output_base / "edges" / "sobel"
-        segments_dir = output_base / "segments" / "sobel"
-        edges_dir.mkdir(parents=True, exist_ok=True)
-        segments_dir.mkdir(parents=True, exist_ok=True)
-
-        cv2.imwrite(str(edges_dir / f"{self.image_id}_edges.jpg"), sobel_edges)
-        cv2.imwrite(str(segments_dir / f"{self.image_id}_segments.jpg"), sobel_vis)
-
-        # Save Canny results
-        edges_dir = output_base / "edges" / "canny"
-        segments_dir = output_base / "segments" / "canny"
-        edges_dir.mkdir(parents=True, exist_ok=True)
-        segments_dir.mkdir(parents=True, exist_ok=True)
-
-        cv2.imwrite(str(edges_dir / f"{self.image_id}_edges.jpg"), canny_edges)
-        cv2.imwrite(str(segments_dir / f"{self.image_id}_segments.jpg"), canny_vis)
-
-    def _create_visualization(
-        self,
-        metrics: Dict,
-        sobel_edges: np.ndarray,
-        canny_edges: np.ndarray,
-        sobel_vis: np.ndarray,
-        canny_vis: np.ndarray,
-        show_plot: bool,
-        save_plot: bool,
-        output_path: Union[str, Path],
-    ) -> None:
-        """
-        Create comparison visualization.
-
-        Args:
-            metrics: Dictionary of comparison metrics
-            sobel_edges: Sobel edge detection result
-            canny_edges: Canny edge detection result
-            sobel_vis: Sobel segmentation visualization
-            canny_vis: Canny segmentation visualization
-            show_plot: Whether to display the plot
-            save_plot: Whether to save the plot
-            output_path: Directory to save the plot
-        """
-        plt.figure(figsize=(15, 10))
-
-        # Original image
-        plt.subplot(2, 3, 1)
-        plt.imshow(cv2.cvtColor(self.image, cv2.COLOR_BGR2RGB))
-        plt.title("Original Image")
-        plt.axis("off")
-
-        # Sobel results
-        plt.subplot(2, 3, 2)
-        plt.imshow(sobel_edges, cmap="gray")
-        plt.title(f"Sobel Edges\nDensity: {metrics['sobel_edge_density']:.3f}")
-        plt.axis("off")
-
-        plt.subplot(2, 3, 3)
-        plt.imshow(cv2.cvtColor(sobel_vis, cv2.COLOR_BGR2RGB))
-        plt.title(f"Sobel Segments\nCount: {metrics['sobel_segments']}")
-        plt.axis("off")
-
-        # Canny results
-        plt.subplot(2, 3, 5)
-        plt.imshow(canny_edges, cmap="gray")
-        plt.title(f"Canny Edges\nDensity: {metrics['canny_edge_density']:.3f}")
-        plt.axis("off")
-
-        plt.subplot(2, 3, 6)
-        plt.imshow(cv2.cvtColor(canny_vis, cv2.COLOR_BGR2RGB))
-        plt.title(f"Canny Segments\nCount: {metrics['canny_segments']}")
-        plt.axis("off")
-
-        plt.tight_layout()
-
-        if save_plot:
-            comparison_dir = Path(output_path) / "comparisons"
-            comparison_dir.mkdir(parents=True, exist_ok=True)
-            plt.savefig(str(comparison_dir / f"comparison_{self.image_id}.png"))
-
-        if show_plot:
-            plt.show()
-        else:
-            plt.close()
-
     def compare_edges(
         self,
         show_plot: bool = True,
@@ -436,7 +303,7 @@ class EdgeBasedSegmentation:
         output_path: str = "results",
     ) -> Dict:
         """
-        Compare Sobel, Canny, and Multi-scale edge detection results.
+        Compare all edge detection methods and segmentation approaches.
 
         Args:
             show_plot: Whether to display the plot
@@ -451,96 +318,225 @@ class EdgeBasedSegmentation:
 
         output_base = Path(output_path)
 
-        # Process with Sobel
+        # Initialize metrics calculator and region grower
+        metrics_calculator = SegmentationMetrics()
+        region_grower = RegionGrowing(
+            threshold=0.05, num_seeds=100, min_region_size=100, output_path=output_path
+        )
+
+        # Process with all edge detectors
+        # Sobel
         sobel_edges = self.detect_edges_sobel(ksize=3)
         sobel_segments = self.segment_image(threshold=128, min_region_size=100)
         sobel_vis = self.create_segment_visualization(sobel_segments)
+        sobel_regions = region_grower.segment(
+            self.image, edge_map=sobel_edges, image_id=f"{self.image_id}_sobel"
+        )
 
-        # Process with Canny
+        # Canny
         canny_edges = self.detect_edges_canny(10, 20)
         canny_segments = self.segment_image(threshold=128, min_region_size=100)
         canny_vis = self.create_segment_visualization(canny_segments)
+        canny_regions = region_grower.segment(
+            self.image, edge_map=canny_edges, image_id=f"{self.image_id}_canny"
+        )
 
-        # Process with Multi-scale detector
-        from src.advanced_edge_detection import MultiscaleDetector
-
+        # Multi-scale
         ms_detector = MultiscaleDetector(output_path=output_path)
         ms_edges = ms_detector.detect(self.image)
-        self.edges = (ms_edges * 255).astype(np.uint8)  # Set for segmentation
+        self.edges = (ms_edges * 255).astype(np.uint8)
         ms_segments = self.segment_image(threshold=128, min_region_size=100)
         ms_vis = self.create_segment_visualization(ms_segments)
+        ms_regions = region_grower.segment(
+            self.image, edge_map=self.edges, image_id=f"{self.image_id}_multiscale"
+        )
 
-        # Save Sobel results
-        edges_dir = output_base / "edges" / "sobel"
-        segments_dir = output_base / "segments" / "sobel"
-        edges_dir.mkdir(parents=True, exist_ok=True)
-        segments_dir.mkdir(parents=True, exist_ok=True)
+        # LoG
+        log_detector = LoGDetector(output_path=output_path)
+        log_edges = log_detector.detect(self.image)
+        self.edges = log_edges
+        log_segments = self.segment_image(threshold=128, min_region_size=100)
+        log_vis = self.create_segment_visualization(log_segments)
+        log_regions = region_grower.segment(
+            self.image, edge_map=log_edges, image_id=f"{self.image_id}_log"
+        )
 
-        cv2.imwrite(str(edges_dir / f"{self.image_id}_edges.jpg"), sobel_edges)
-        cv2.imwrite(str(segments_dir / f"{self.image_id}_segments.jpg"), sobel_vis)
+        # Save results for each method
+        for method, edges, vis, regions in [
+            ("sobel", sobel_edges, sobel_vis, sobel_regions),
+            ("canny", canny_edges, canny_vis, canny_regions),
+            ("multiscale", ms_edges, ms_vis, ms_regions),
+            ("log", log_edges, log_vis, log_regions),
+        ]:
+            # Save edges
+            edges_dir = output_base / "edges" / method
+            edges_dir.mkdir(parents=True, exist_ok=True)
+            if method in ["multiscale", "log"]:
+                edges_dir = output_base / "advanced_edges" / method / "edges"
+            cv2.imwrite(
+                str(edges_dir / f"{self.image_id}_edges.jpg"),
+                edges * 255 if edges.max() <= 1 else edges,
+            )
 
-        # Save Canny results
-        edges_dir = output_base / "edges" / "canny"
-        segments_dir = output_base / "segments" / "canny"
-        edges_dir.mkdir(parents=True, exist_ok=True)
-        segments_dir.mkdir(parents=True, exist_ok=True)
+            # Save segmentation
+            segments_dir = output_base / "segments" / method
+            segments_dir.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(str(segments_dir / f"{self.image_id}_segments.jpg"), vis)
 
-        cv2.imwrite(str(edges_dir / f"{self.image_id}_edges.jpg"), canny_edges)
-        cv2.imwrite(str(segments_dir / f"{self.image_id}_segments.jpg"), canny_vis)
-
-        # Calculate comparison metrics
+            # Calculate comprehensive metrics
         metrics = {
-            "sobel_edge_density": np.mean(sobel_edges > 0),
-            "canny_edge_density": np.mean(canny_edges > 0),
-            "multiscale_edge_density": np.mean(ms_edges > 0.1),
-            "sobel_segments": len(np.unique(sobel_segments)),
-            "canny_segments": len(np.unique(canny_segments)),
-            "multiscale_segments": len(np.unique(ms_segments)),
+            # Edge detection metrics
+            "sobel_edge_density": metrics_calculator.edge_metrics(sobel_edges)[
+                "edge_density"
+            ],
+            "canny_edge_density": metrics_calculator.edge_metrics(canny_edges)[
+                "edge_density"
+            ],
+            "multiscale_edge_density": metrics_calculator.edge_metrics(ms_edges)[
+                "edge_density"
+            ],
+            "log_edge_density": metrics_calculator.edge_metrics(log_edges)[
+                "edge_density"
+            ],
+            # Basic segmentation metrics
+            "sobel_segments": metrics_calculator.segment_metrics(sobel_segments)[
+                "num_segments"
+            ],
+            "canny_segments": metrics_calculator.segment_metrics(canny_segments)[
+                "num_segments"
+            ],
+            "multiscale_segments": metrics_calculator.segment_metrics(ms_segments)[
+                "num_segments"
+            ],
+            "log_segments": metrics_calculator.segment_metrics(log_segments)[
+                "num_segments"
+            ],
+            # Region growing metrics
+            "sobel_regions": metrics_calculator.segment_metrics(sobel_regions)[
+                "num_segments"
+            ],
+            "canny_regions": metrics_calculator.segment_metrics(canny_regions)[
+                "num_segments"
+            ],
+            "multiscale_regions": metrics_calculator.segment_metrics(ms_regions)[
+                "num_segments"
+            ],
+            "log_regions": metrics_calculator.segment_metrics(log_regions)[
+                "num_segments"
+            ],
+            # Edge continuity metrics
+            "sobel_edge_continuity": metrics_calculator.edge_metrics(sobel_edges)[
+                "edge_continuity"
+            ],
+            "canny_edge_continuity": metrics_calculator.edge_metrics(canny_edges)[
+                "edge_continuity"
+            ],
+            "multiscale_edge_continuity": metrics_calculator.edge_metrics(ms_edges)[
+                "edge_continuity"
+            ],
+            "log_edge_continuity": metrics_calculator.edge_metrics(log_edges)[
+                "edge_continuity"
+            ],
+            # Region size metrics
+            "sobel_avg_region_size": metrics_calculator.segment_metrics(sobel_regions)[
+                "avg_segment_size"
+            ],
+            "canny_avg_region_size": metrics_calculator.segment_metrics(canny_regions)[
+                "avg_segment_size"
+            ],
+            "multiscale_avg_region_size": metrics_calculator.segment_metrics(
+                ms_regions
+            )["avg_segment_size"],
+            "log_avg_region_size": metrics_calculator.segment_metrics(log_regions)[
+                "avg_segment_size"
+            ],
         }
 
         if show_plot or save_plot:
-            plt.figure(figsize=(20, 10))
+            plt.figure(figsize=(20, 15))
 
             # Original image
-            plt.subplot(2, 3, 1)
+            plt.subplot(3, 4, 1)
             plt.imshow(cv2.cvtColor(self.image, cv2.COLOR_BGR2RGB))
             plt.title("Original Image")
             plt.axis("off")
 
-            # Sobel results
-            plt.subplot(2, 3, 2)
+            # Edge detection results
+            plt.subplot(3, 4, 2)
             plt.imshow(sobel_edges, cmap="gray")
-            plt.title(f"Sobel Edges\nDensity: {metrics['sobel_edge_density']:.3f}")
+            plt.title(
+                f"Sobel Edges\nDensity: {metrics['sobel_edge_density']:.3f}\nContinuity: {metrics['sobel_edge_continuity']:.3f}"
+            )
             plt.axis("off")
 
-            plt.subplot(2, 3, 3)
+            plt.subplot(3, 4, 3)
+            plt.imshow(canny_edges, cmap="gray")
+            plt.title(
+                f"Canny Edges\nDensity: {metrics['canny_edge_density']:.3f}\nContinuity: {metrics['canny_edge_continuity']:.3f}"
+            )
+            plt.axis("off")
+
+            plt.subplot(3, 4, 4)
+            plt.imshow(ms_edges, cmap="gray")
+            plt.title(
+                f"Multi-scale Edges\nDensity: {metrics['multiscale_edge_density']:.3f}\nContinuity: {metrics['multiscale_edge_continuity']:.3f}"
+            )
+            plt.axis("off")
+
+            # Basic segmentation results
+            plt.subplot(3, 4, 5)
             plt.imshow(cv2.cvtColor(sobel_vis, cv2.COLOR_BGR2RGB))
             plt.title(f"Sobel Segments\nCount: {metrics['sobel_segments']}")
             plt.axis("off")
 
-            # Canny results
-            plt.subplot(2, 3, 4)
-            plt.imshow(canny_edges, cmap="gray")
-            plt.title(f"Canny Edges\nDensity: {metrics['canny_edge_density']:.3f}")
-            plt.axis("off")
-
-            plt.subplot(2, 3, 5)
+            plt.subplot(3, 4, 6)
             plt.imshow(cv2.cvtColor(canny_vis, cv2.COLOR_BGR2RGB))
             plt.title(f"Canny Segments\nCount: {metrics['canny_segments']}")
             plt.axis("off")
 
-            # Multi-scale results
-            plt.subplot(2, 3, 6)
-            plt.imshow(ms_edges, cmap="gray")
+            plt.subplot(3, 4, 7)
+            plt.imshow(cv2.cvtColor(ms_vis, cv2.COLOR_BGR2RGB))
+            plt.title(f"Multi-scale Segments\nCount: {metrics['multiscale_segments']}")
+            plt.axis("off")
+
+            plt.subplot(3, 4, 8)
+            plt.imshow(cv2.cvtColor(log_vis, cv2.COLOR_BGR2RGB))
+            plt.title(f"LoG Segments\nCount: {metrics['log_segments']}")
+            plt.axis("off")
+
+            # Region growing results
+            plt.subplot(3, 4, 9)
+            plt.imshow(sobel_regions, cmap="nipy_spectral")
             plt.title(
-                f"Multi-scale Edges\nDensity: {metrics['multiscale_edge_density']:.3f}"
+                f"Sobel Region Growing\nRegions: {metrics['sobel_regions']}\nAvg Size: {metrics['sobel_avg_region_size']:.1f}"
+            )
+            plt.axis("off")
+
+            plt.subplot(3, 4, 10)
+            plt.imshow(canny_regions, cmap="nipy_spectral")
+            plt.title(
+                f"Canny Region Growing\nRegions: {metrics['canny_regions']}\nAvg Size: {metrics['canny_avg_region_size']:.1f}"
+            )
+            plt.axis("off")
+
+            plt.subplot(3, 4, 11)
+            plt.imshow(ms_regions, cmap="nipy_spectral")
+            plt.title(
+                f"Multi-scale Region Growing\nRegions: {metrics['multiscale_regions']}\nAvg Size: {metrics['multiscale_avg_region_size']:.1f}"
+            )
+            plt.axis("off")
+
+            plt.subplot(3, 4, 12)
+            plt.imshow(log_regions, cmap="nipy_spectral")
+            plt.title(
+                f"LoG Region Growing\nRegions: {metrics['log_regions']}\nAvg Size: {metrics['log_avg_region_size']:.1f}"
             )
             plt.axis("off")
 
             plt.tight_layout()
 
             if save_plot:
-                comparison_dir = Path("results") / "comparisons"
+                comparison_dir = Path(output_path) / "comparisons"
                 comparison_dir.mkdir(parents=True, exist_ok=True)
                 plt.savefig(str(comparison_dir / f"comparison_{self.image_id}.png"))
 
@@ -573,15 +569,28 @@ def process_dataset_sample(
     segmenter = EdgeBasedSegmentation(dataset_path)
     results = []
 
-    # Create all necessary directories
+    # Create necessary directories
     output_base = Path(output_path)
     directories = [
+        # Basic edge detection and segmentation
         output_base / "edges" / "sobel",
         output_base / "edges" / "canny",
         output_base / "segments" / "sobel",
         output_base / "segments" / "canny",
         output_base / "comparisons",
+        # Advanced edge detection
+        output_base / "advanced_edges" / "multiscale" / "edges",
+        output_base / "advanced_edges" / "multiscale" / "visualizations",
+        output_base / "advanced_edges" / "log" / "edges",
+        output_base / "advanced_edges" / "log" / "visualizations",
+        # Region growing results
+        output_base / "advanced_segments" / "region_growing" / "segments",
+        output_base / "advanced_segments" / "region_growing" / "visualizations",
+        # Evaluation results
+        output_base / "evaluation" / "metrics",
+        output_base / "evaluation" / "benchmarks",
     ]
+
     for dir_path in directories:
         dir_path.mkdir(parents=True, exist_ok=True)
 
@@ -630,11 +639,32 @@ def process_dataset_sample(
     if results:
         df = pd.DataFrame(results)
 
-        # Calculate additional statistics
-        df["edge_density_difference"] = (
-            df["canny_edge_density"] - df["sobel_edge_density"]
-        )
-        df["segment_count_difference"] = df["canny_segments"] - df["sobel_segments"]
+        # Calculate method comparisons
+        method_pairs = [
+            ("canny", "sobel"),
+            ("multiscale", "sobel"),
+            ("log", "sobel"),
+            ("multiscale", "canny"),
+            ("log", "canny"),
+            ("log", "multiscale"),
+        ]
+
+        for method1, method2 in method_pairs:
+            # Edge detection comparisons
+            df[f"{method1}_vs_{method2}_edge_density"] = (
+                df[f"{method1}_edge_density"] - df[f"{method2}_edge_density"]
+            )
+            df[f"{method1}_vs_{method2}_continuity"] = (
+                df[f"{method1}_edge_continuity"] - df[f"{method2}_edge_continuity"]
+            )
+
+            # Segmentation comparisons
+            df[f"{method1}_vs_{method2}_segments"] = (
+                df[f"{method1}_segments"] - df[f"{method2}_segments"]
+            )
+            df[f"{method1}_vs_{method2}_regions"] = (
+                df[f"{method1}_regions"] - df[f"{method2}_regions"]
+            )
 
         summary = df.describe()
 
@@ -644,9 +674,10 @@ def process_dataset_sample(
 
         df.to_csv(results_dir / "edge_detection_comparison.csv", index=False)
 
+        # Write comprehensive summary report
         with open(results_dir / "summary_report.txt", "w") as f:
-            f.write("Edge Detection Comparison Summary\n")
-            f.write("================================\n\n")
+            f.write("Edge Detection and Segmentation Comparison Summary\n")
+            f.write("==============================================\n\n")
 
             f.write("Dataset Statistics:\n")
             f.write(f"Total images processed: {len(results)}\n")
@@ -657,27 +688,43 @@ def process_dataset_sample(
                 f"Test images: {len([r for r in results if r['dataset'] == 'test'])}\n\n"
             )
 
-            f.write("Metrics Summary:\n")
-            f.write(str(summary))
-            f.write("\n\n")
+            f.write("Edge Detection Metrics:\n")
+            f.write("-----------------------\n")
+            for method in ["sobel", "canny", "multiscale", "log"]:
+                f.write(f"\n{method.capitalize()}:\n")
+                f.write(
+                    f"Average edge density: {df[f'{method}_edge_density'].mean():.3f}\n"
+                )
+                f.write(
+                    f"Edge continuity: {df[f'{method}_edge_continuity'].mean():.3f}\n"
+                )
 
-            f.write("Method Comparison:\n")
-            f.write(
-                f"Average Sobel edge density: {df['sobel_edge_density'].mean():.3f}\n"
-            )
-            f.write(
-                f"Average Canny edge density: {df['canny_edge_density'].mean():.3f}\n"
-            )
-            f.write(f"Average Sobel segments: {df['sobel_segments'].mean():.1f}\n")
-            f.write(f"Average Canny segments: {df['canny_segments'].mean():.1f}\n")
+            f.write("\nSegmentation Metrics:\n")
+            f.write("--------------------\n")
+            for method in ["sobel", "canny", "multiscale", "log"]:
+                f.write(f"\n{method.capitalize()}:\n")
+                f.write(f"Average segments: {df[f'{method}_segments'].mean():.1f}\n")
+                f.write(f"Average regions: {df[f'{method}_regions'].mean():.1f}\n")
+                f.write(
+                    f"Average region size: {df[f'{method}_avg_region_size'].mean():.1f}\n"
+                )
 
-            f.write("\nKey Observations:\n")
-            f.write(
-                f"- Edge density difference (Canny - Sobel): {df['edge_density_difference'].mean():.3f}\n"
-            )
-            f.write(
-                f"- Segment count difference (Canny - Sobel): {df['segment_count_difference'].mean():.1f}\n"
-            )
+            f.write("\nMethod Comparisons:\n")
+            f.write("------------------\n")
+            for method1, method2 in method_pairs:
+                f.write(f"\n{method1.capitalize()} vs {method2.capitalize()}:\n")
+                f.write(
+                    f"Edge density difference: {df[f'{method1}_vs_{method2}_edge_density'].mean():.3f}\n"
+                )
+                f.write(
+                    f"Continuity difference: {df[f'{method1}_vs_{method2}_continuity'].mean():.3f}\n"
+                )
+                f.write(
+                    f"Segment count difference: {df[f'{method1}_vs_{method2}_segments'].mean():.1f}\n"
+                )
+                f.write(
+                    f"Region count difference: {df[f'{method1}_vs_{method2}_regions'].mean():.1f}\n"
+                )
 
         print(f"\nResults saved to {results_dir}")
         return df, summary
