@@ -1,0 +1,30 @@
+Edge Detection Comparison Summary
+================================
+
+Dataset Statistics:
+Total images processed: 300
+Training images: 200
+Test images: 100
+
+Metrics Summary:
+       sobel_edge_density  canny_edge_density  ...  edge_density_difference  segment_count_difference
+count          300.000000          300.000000  ...               300.000000                     300.0
+mean             0.970789            0.173980  ...                -0.796809                       0.0
+std              0.039674            0.071710  ...                 0.072248                       0.0
+min              0.693907            0.018303  ...                -0.950790                       0.0
+25%              0.974720            0.123055  ...                -0.847446                       0.0
+50%              0.984226            0.170115  ...                -0.803201                       0.0
+75%              0.988347            0.215437  ...                -0.750186                       0.0
+max              0.989605            0.359674  ...                -0.542101                       0.0
+
+[8 rows x 10 columns]
+
+Method Comparison:
+Average Sobel edge density: 0.971
+Average Canny edge density: 0.174
+Average Sobel segments: 1.0
+Average Canny segments: 1.0
+
+Key Observations:
+- Edge density difference (Canny - Sobel): -0.797
+- Segment count difference (Canny - Sobel): 0.0
