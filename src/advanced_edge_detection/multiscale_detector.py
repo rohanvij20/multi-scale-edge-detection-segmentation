@@ -211,7 +211,7 @@ class MultiscaleDetector:
                 )
             )
 
-        if n_samples:
+        if n_samples is not None:
             paths = paths[:n_samples]
 
         print(f"Processing {len(paths)} images...")

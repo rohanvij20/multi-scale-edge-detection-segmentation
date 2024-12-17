@@ -21,55 +21,38 @@ class ResultsCleaner:
 
         # Define directory structure
         self.directory_structure = {
-            # Basic edge detection results
             "edges": ["sobel", "canny"],
-            # Segmentation results
             "segments": ["sobel", "canny"],
-            # Advanced edge detection results
             "advanced_edges": ["log", "multiscale"],
-            # Advanced segmentation results
             "advanced_segments": ["watershed", "region_growing"],
-            # Evaluation and comparison results
             "evaluation": ["metrics", "benchmarks"],
-            # Visualization results
             "comparisons": [],
         }
 
         # Files to remove
         self.files_to_remove = [
-            # Basic comparison results
             "edge_detection_comparison.csv",
             "summary_report.txt",
             "parameter_results.csv",
-            # Advanced analysis results
             "advanced_edge_comparison.csv",
             "advanced_segmentation_comparison.csv",
             "evaluation_metrics.csv",
         ]
 
     def get_all_directories(self) -> List[Path]:
-        """
-        Get all directories that should be maintained.
-
-        Returns:
-            List of Path objects for all directories
-        """
+        """Get all directories that should be maintained."""
         directories = []
         for main_dir, subdirs in self.directory_structure.items():
+            main_path = self.results_path / main_dir
             if subdirs:
                 for subdir in subdirs:
-                    directories.append(self.results_path / main_dir / subdir)
+                    directories.append(main_path / subdir)
             else:
-                directories.append(self.results_path / main_dir)
+                directories.append(main_path)
         return directories
 
-    def clear_directories(self) -> Dict[str, int]:
-        """
-        Clear all result directories while maintaining structure.
-
-        Returns:
-            Dictionary with counts of cleared items
-        """
+    def clear_results(self) -> Dict[str, int]:
+        """Clear all results directories and files."""
         stats = {"directories": 0, "files": 0}
 
         # Clear and recreate directories
@@ -103,13 +86,10 @@ class ResultsCleaner:
         print("\nRecreated directory structure:")
         print("└── results/")
 
-        # Print main directories
         for i, (main_dir, subdirs) in enumerate(self.directory_structure.items()):
             is_last_main = i == len(self.directory_structure) - 1
             prefix = "    └── " if is_last_main else "    ├── "
             print(f"{prefix}{main_dir}/")
-
-            # Print subdirectories if any
             if subdirs:
                 for j, subdir in enumerate(subdirs):
                     is_last_sub = j == len(subdirs) - 1
@@ -118,87 +98,23 @@ class ResultsCleaner:
                     print(f"{sub_prefix}{subdir}/")
 
 
-def clear_results(results_dir: str = "results") -> None:
-    """Clear all results directories while maintaining the structure."""
-    results_path = Path(results_dir)
-
-    # Define all directories to maintain
-    directories = [
-        # Original structure
-        results_path / "edges" / "sobel",
-        results_path / "edges" / "canny",
-        results_path / "segments" / "sobel",
-        results_path / "segments" / "canny",
-        # Comparison structure
-        results_path / "comparisons",
-        # Multi-scale structure
-        results_path / "advanced_edges" / "multiscale" / "edges",
-        results_path / "advanced_edges" / "multiscale" / "visualizations",
-    ]
-
-    # Files to remove
-    files_to_remove = [
-        results_path / "edge_detection_comparison.csv",
-        results_path / "summary_report.txt",
-        results_path / "parameter_results.csv",
-        # Multi-scale results
-        results_path / "advanced_edges" / "multiscale" / "results.csv",
-    ]
-
-    # Remove and recreate directories
-    for dir_path in directories:
-        if dir_path.exists():
-            print(f"Clearing directory: {dir_path}")
-            shutil.rmtree(dir_path)
-        dir_path.mkdir(parents=True, exist_ok=True)
-
-    # Remove result files
-    for file_path in files_to_remove:
-        if file_path.exists():
-            print(f"Removing file: {file_path}")
-            file_path.unlink()
-
-    print(f"\nCleared all results in {results_dir}/")
-    print("\nRecreated directory structure:")
-    print("└── results/")
-    print("    ├── edges/")
-    print("    │   ├── sobel/")
-    print("    │   └── canny/")
-    print("    ├── segments/")
-    print("    │   ├── sobel/")
-    print("    │   └── canny/")
-    print("    ├── comparisons/")
-    print("    └── advanced_edges/")
-    print("        └── multiscale/")
-    print("            ├── edges/")
-    print("            └── visualizations/")
-
-
 def main():
-    """Main function to handle command line arguments."""
+    """Main function to execute the results cleaner."""
     parser = argparse.ArgumentParser(
-        description="Clear results directories while maintaining structure."
+        description="Clear and recreate results directories."
     )
     parser.add_argument(
         "--results-dir",
         default="results",
         help="Base directory for results (default: results)",
     )
-    parser.add_argument(
-        "--quiet", action="store_true", help="Suppress output except for errors"
-    )
-
     args = parser.parse_args()
 
-    # Temporarily redirect stdout if quiet mode is enabled
-    if args.quiet:
-        sys.stdout = open(os.devnull, "w")
+    cleaner = ResultsCleaner(args.results_dir)
+    stats = cleaner.clear_results()
 
-    try:
-        clear_results(args.results_dir)
-    finally:
-        if args.quiet:
-            sys.stdout = sys.__stdout__
+    print(f"\nCleared {stats['directories']} directories and {stats['files']} files.")
+    cleaner.print_directory_structure()
 
 
 if __name__ == "__main__":

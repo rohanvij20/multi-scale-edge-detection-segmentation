@@ -239,5 +239,7 @@ if __name__ == "__main__":
     # Example usage
     segmenter = RegionGrowing(threshold=0.05, num_seeds=100)
     results = segmenter.process_dataset(
-        "data/BSDS300/BSDS300-images/images/train", "results/edges/sobel", n_samples=5
+        "data/BSDS300/BSDS300-images/images/train",
+        "results/edges/sobel",
+        n_samples=None,
     )
