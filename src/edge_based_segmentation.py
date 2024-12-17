@@ -334,6 +334,9 @@ class EdgeBasedSegmentation:
         )
 
         # Canny
+        region_grower = RegionGrowing(
+            threshold=0.005, num_seeds=100, min_region_size=100, output_path=output_path
+        )
         canny_edges = self.detect_edges_canny(10, 20)
         canny_segments = self.segment_image(threshold=128, min_region_size=100)
         canny_vis = self.create_segment_visualization(canny_segments)
@@ -342,6 +345,9 @@ class EdgeBasedSegmentation:
         )
 
         # Multi-scale
+        region_grower = RegionGrowing(
+            threshold=0.02, num_seeds=100, min_region_size=100, output_path=output_path
+        )
         ms_detector = MultiscaleDetector(output_path=output_path)
         ms_edges = ms_detector.detect(self.image)
         self.edges = (ms_edges * 255).astype(np.uint8)
@@ -352,6 +358,9 @@ class EdgeBasedSegmentation:
         )
 
         # LoG
+        region_grower = RegionGrowing(
+            threshold=0.9, num_seeds=100, min_region_size=100, output_path=output_path
+        )
         log_detector = LoGDetector(output_path=output_path)
         log_edges = log_detector.detect(self.image)
         self.edges = log_edges
@@ -566,7 +575,6 @@ def process_dataset_sample(
     Returns:
         Tuple containing (results DataFrame, summary DataFrame)
     """
-
     segmenter = EdgeBasedSegmentation(dataset_path)
     results = []
 
@@ -611,7 +619,6 @@ def process_dataset_sample(
     # image_ids = train_ids + test_ids
     # Force to use only the first 10 images
     image_ids = (train_ids + test_ids)[:10]
-
     if n_samples is not None:
         image_ids = image_ids[:n_samples]
         print(f"Processing {n_samples} samples")
