@@ -596,9 +596,7 @@ def process_dataset_sample(
         print(f"Found {len(test_ids)} test images")
 
     # Combine and limit samples if specified
-    # image_ids = train_ids + test_ids
-    # Force to use only the first 10 images
-    image_ids = (train_ids + test_ids)[:10]
+    image_ids = train_ids + test_ids
 
     if n_samples is not None:
         image_ids = image_ids[:n_samples]

@@ -2,27 +2,27 @@ Edge Detection and Segmentation Comparison Summary
 ==============================================
 
 Dataset Statistics:
-Total images processed: 10
-Training images: 10
-Test images: 0
+Total images processed: 300
+Training images: 200
+Test images: 100
 
 Edge Detection Metrics:
 ----------------------
 
 Sobel:
-Edge density: 0.968
+Edge density: 0.971
 Edge continuity: Not available for sobel
 
 Canny:
-Edge density: 0.161
+Edge density: 0.174
 Edge continuity: Not available for canny
 
 Multiscale:
-Edge density: 0.983
+Edge density: 0.986
 Edge continuity: Not available for multiscale
 
 Log:
-Edge density: 0.838
+Edge density: 0.839
 Edge continuity: Not available for log
 
 Segmentation Method Comparison:
@@ -31,4 +31,4 @@ Segmentation Method Comparison:
 Sobel:
 Basic segments: 1.0
 Region growing regions: 99.9
-Watershed regions: 41.2
+Watershed regions: 41.0
