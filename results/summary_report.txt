@@ -7,82 +7,28 @@ Training images: 10
 Test images: 0
 
 Edge Detection Metrics:
------------------------
+----------------------
 
 Sobel:
-Average edge density: 0.968
-Edge continuity: 186.423
+Edge density: 0.968
+Edge continuity: Not available for sobel
 
 Canny:
-Average edge density: 0.161
-Edge continuity: 30.980
+Edge density: 0.161
+Edge continuity: Not available for canny
 
 Multiscale:
-Average edge density: 0.983
-Edge continuity: 189.327
+Edge density: 0.983
+Edge continuity: Not available for multiscale
 
 Log:
-Average edge density: 0.838
-Edge continuity: 161.369
+Edge density: 0.838
+Edge continuity: Not available for log
 
-Segmentation Metrics:
---------------------
+Segmentation Method Comparison:
+----------------------------
 
 Sobel:
-Average segments: 1.0
-Average regions: 16.2
-Average region size: 14941.0
-
-Canny:
-Average segments: 1.0
-Average regions: 2.0
-Average region size: 77200.5
-
-Multiscale:
-Average segments: 1.0
-Average regions: 2.0
-Average region size: 77200.5
-
-Log:
-Average segments: 1.0
-Average regions: 2.0
-Average region size: 77200.5
-
-Method Comparisons:
-------------------
-
-Canny vs Sobel:
-Edge density difference: -0.807
-Continuity difference: -155.443
-Segment count difference: 0.0
-Region count difference: -14.2
-
-Multiscale vs Sobel:
-Edge density difference: 0.015
-Continuity difference: 2.904
-Segment count difference: 0.0
-Region count difference: -14.2
-
-Log vs Sobel:
-Edge density difference: -0.130
-Continuity difference: -25.054
-Segment count difference: 0.0
-Region count difference: -14.2
-
-Multiscale vs Canny:
-Edge density difference: 0.822
-Continuity difference: 158.347
-Segment count difference: 0.0
-Region count difference: 0.0
-
-Log vs Canny:
-Edge density difference: 0.677
-Continuity difference: 130.389
-Segment count difference: 0.0
-Region count difference: 0.0
-
-Log vs Multiscale:
-Edge density difference: -0.145
-Continuity difference: -27.958
-Segment count difference: 0.0
-Region count difference: 0.0
+Basic segments: 1.0
+Region growing regions: 99.9
+Watershed regions: 41.2

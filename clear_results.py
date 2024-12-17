@@ -21,38 +21,87 @@ class ResultsCleaner:
 
         # Define directory structure
         self.directory_structure = {
+            # Basic edge detection
             "edges": ["sobel", "canny"],
+            # Basic segmentation
             "segments": ["sobel", "canny"],
-            "advanced_edges": ["log", "multiscale"],
-            "advanced_segments": ["watershed", "region_growing"],
+            # Advanced edge detection
+            "advanced_edges": {
+                "log": ["edges", "visualizations"],
+                "multiscale": ["edges", "visualizations"],
+            },
+            # Advanced segmentation
+            "advanced_segments": {
+                "watershed": ["segments", "visualizations"],
+                "region_growing": ["segments", "visualizations"],
+            },
+            # Evaluation and comparison
             "evaluation": ["metrics", "benchmarks"],
             "comparisons": [],
+            # Method-specific results
+            "method_comparison": ["edge_detection", "segmentation"],
         }
 
         # Files to remove
         self.files_to_remove = [
+            # Basic comparison files
             "edge_detection_comparison.csv",
             "summary_report.txt",
             "parameter_results.csv",
+            # Advanced comparison files
             "advanced_edge_comparison.csv",
             "advanced_segmentation_comparison.csv",
-            "evaluation_metrics.csv",
+            # Method-specific results
+            "method_comparison/edge_detection_metrics.csv",
+            "method_comparison/segmentation_metrics.csv",
+            # Evaluation files
+            "evaluation/metrics/edge_metrics.csv",
+            "evaluation/metrics/segmentation_metrics.csv",
+            "evaluation/benchmarks/performance_metrics.csv",
+            # Region growing results
+            "advanced_segments/region_growing/results.csv",
+            # Watershed results
+            "advanced_segments/watershed/results.csv",
         ]
 
     def get_all_directories(self) -> List[Path]:
-        """Get all directories that should be maintained."""
+        """
+        Get all directories that should be maintained.
+
+        Returns:
+            List of Path objects for all directories
+        """
         directories = []
-        for main_dir, subdirs in self.directory_structure.items():
-            main_path = self.results_path / main_dir
-            if subdirs:
-                for subdir in subdirs:
-                    directories.append(main_path / subdir)
-            else:
-                directories.append(main_path)
+
+        def add_nested_dirs(base_path: Path, structure: dict) -> None:
+            """Recursively add nested directories."""
+            for key, value in structure.items():
+                current_path = base_path / key
+                if isinstance(value, list):
+                    if value:  # If there are subdirectories
+                        for subdir in value:
+                            directories.append(current_path / subdir)
+                    else:  # If it's an empty list, add the current path
+                        directories.append(current_path)
+                elif isinstance(value, dict):  # Handle nested structure
+                    for subkey, subvalue in value.items():
+                        nested_path = current_path / subkey
+                        if isinstance(subvalue, list):
+                            for subdir in subvalue:
+                                directories.append(nested_path / subdir)
+                        else:
+                            add_nested_dirs(nested_path, subvalue)
+
+        add_nested_dirs(self.results_path, self.directory_structure)
         return directories
 
     def clear_results(self) -> Dict[str, int]:
-        """Clear all results directories and files."""
+        """
+        Clear all results directories and files.
+
+        Returns:
+            Dictionary containing counts of cleared items
+        """
         stats = {"directories": 0, "files": 0}
 
         # Clear and recreate directories
@@ -86,16 +135,27 @@ class ResultsCleaner:
         print("\nRecreated directory structure:")
         print("└── results/")
 
-        for i, (main_dir, subdirs) in enumerate(self.directory_structure.items()):
-            is_last_main = i == len(self.directory_structure) - 1
-            prefix = "    └── " if is_last_main else "    ├── "
-            print(f"{prefix}{main_dir}/")
-            if subdirs:
-                for j, subdir in enumerate(subdirs):
-                    is_last_sub = j == len(subdirs) - 1
-                    sub_prefix = "    │   " if not is_last_main else "        "
-                    sub_prefix += "└── " if is_last_sub else "├── "
-                    print(f"{sub_prefix}{subdir}/")
+        def print_nested_structure(
+            structure: dict, prefix: str = "    ", last: bool = True
+        ) -> None:
+            """Recursively print nested directory structure."""
+            items = list(structure.items())
+            for i, (name, value) in enumerate(items):
+                is_last = i == len(items) - 1
+                current_prefix = prefix + ("└── " if is_last else "├── ")
+                print(f"{current_prefix}{name}/")
+
+                if isinstance(value, dict):
+                    new_prefix = prefix + ("    " if is_last else "│   ")
+                    print_nested_structure(value, new_prefix)
+                elif isinstance(value, list) and value:
+                    new_prefix = prefix + ("    " if is_last else "│   ")
+                    for j, subdir in enumerate(value):
+                        is_last_sub = j == len(value) - 1
+                        sub_prefix = new_prefix + ("└── " if is_last_sub else "├── ")
+                        print(f"{sub_prefix}{subdir}/")
+
+        print_nested_structure(self.directory_structure)
 
 
 def main():
@@ -108,13 +168,25 @@ def main():
         default="results",
         help="Base directory for results (default: results)",
     )
+    parser.add_argument(
+        "--quiet", action="store_true", help="Suppress output except for errors"
+    )
+
     args = parser.parse_args()
 
-    cleaner = ResultsCleaner(args.results_dir)
-    stats = cleaner.clear_results()
+    if args.quiet:
+        sys.stdout = open(os.devnull, "w")
 
-    print(f"\nCleared {stats['directories']} directories and {stats['files']} files.")
-    cleaner.print_directory_structure()
+    try:
+        cleaner = ResultsCleaner(args.results_dir)
+        stats = cleaner.clear_results()
+        print(
+            f"\nCleared {stats['directories']} directories and {stats['files']} files."
+        )
+        cleaner.print_directory_structure()
+    finally:
+        if args.quiet:
+            sys.stdout = sys.__stdout__
 
 
 if __name__ == "__main__":

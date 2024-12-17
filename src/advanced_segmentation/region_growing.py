@@ -105,80 +105,87 @@ class RegionGrowing:
         Returns:
             Segmented image
         """
-        # Convert to grayscale if needed
+        # Convert to grayscale and preprocess exactly like original
         if len(image.shape) == 3:
             image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-        # Normalize image
+        # Convert to float32 and remove border pixels as in original
+        image = image.astype(np.float32)[1:-1, 1:-1]
+
+        # Normalize exactly like original
         image = (image - np.min(image)) / (np.max(image) - np.min(image))
 
+        # Get dimensions after border removal
         h, w = image.shape
+        print(f"Image range: max={np.max(image)}, min={np.min(image)}")
+
+        # Initialize arrays exactly like original
         region = np.zeros((h, w), dtype=np.uint8)
-        visited = np.zeros((h, w), dtype=bool)
+        visited = np.zeros((h, w))
 
-        # If edge map is provided, adjust threshold based on edge strength
-        if edge_map is not None:
-            self.threshold = np.mean(edge_map) * 0.5
+        # Use random.randint as in original instead of np.random
+        import random
 
-        # Generate seed points
-        np.random.seed(42)  # For reproducibility
-        seeds = set()
-        while len(seeds) < self.num_seeds:
-            x = np.random.randint(0, w)
-            y = np.random.randint(0, h)
-            if edge_map is None or edge_map[y, x] < np.mean(edge_map):
-                seeds.add((x, y))
+        for i in range(self.num_seeds):
+            x = random.randint(0, w - 1)
+            y = random.randint(0, h - 1)
+            seed = (x, y)
+            color = int(i * 255 / self.num_seeds)  # Same color calculation as original
 
-        # Grow regions from seeds
-        for i, seed in enumerate(seeds):
-            color = int((i + 1) * 255 / self.num_seeds)
-            self._grow_region(seed, image, region, visited, color)
+            # Use deque for queue as in original
+            Q = deque()
+            Q.append(seed)
 
-        # Filter small regions
-        labels = np.unique(region)
-        for label in labels:
-            mask = region == label
-            if np.sum(mask) < self.min_region_size:
-                region[mask] = 0
+            while Q:
+                curr = Q.popleft()
+                x, y = curr
+
+                # Check 4-connected neighbors exactly as in original
+                neighbors = [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]
+
+                for next_point in neighbors:
+                    x1, y1 = next_point
+                    if (x1 >= 0 and x1 < w) and (y1 >= 0 and y1 < h):
+                        region[y1, x1] = color
+                        if not visited[y1, x1]:
+                            visited[y1, x1] = 1
+                            if np.abs(image[y, x] - image[y1, x1]) < self.threshold:
+                                Q.append((x1, y1))
 
         # Save results if image_id is provided
         if image_id is not None:
-            # Save segmentation
             seg_path = (
                 self.output_path / "advanced_segments" / "region_growing" / "segments"
             )
-            cv2.imwrite(str(seg_path / f"{image_id}_segments.png"), region)
-
-            # Create and save visualization
-            plt.figure(figsize=(15, 5))
-
-            plt.subplot(131)
-            plt.imshow(image, cmap="gray")
-            plt.title("Original Image")
-            plt.axis("off")
-
-            if edge_map is not None:
-                plt.subplot(132)
-                plt.imshow(edge_map, cmap="gray")
-                plt.title("Edge Map")
-                plt.axis("off")
-
-                plt.subplot(133)
-                plt.imshow(region, cmap="nipy_spectral")
-                plt.title(f"Region Growing\n(threshold={self.threshold:.3f})")
-                plt.axis("off")
-            else:
-                plt.subplot(132)
-                plt.imshow(region, cmap="nipy_spectral")
-                plt.title(f"Region Growing\n(threshold={self.threshold:.3f})")
-                plt.axis("off")
-
             vis_path = (
                 self.output_path
                 / "advanced_segments"
                 / "region_growing"
                 / "visualizations"
             )
+
+            # Save segmentation result
+            cv2.imwrite(str(seg_path / f"{image_id}_segments.png"), region)
+
+            # Create visualization as in original
+            plt.figure(figsize=(15, 5))
+
+            plt.subplot(131)
+            plt.imshow(image * 255, vmin=0, vmax=255)  # Scale like original
+            plt.title("Original Image")
+            plt.axis("off")
+
+            plt.subplot(132)
+            plt.imshow(region, vmin=0, vmax=255)  # Same scale as original
+            plt.title("Region Growing")
+            plt.axis("off")
+
+            if edge_map is not None:
+                plt.subplot(133)
+                plt.imshow(edge_map, cmap="gray")
+                plt.title("Edge Map")
+                plt.axis("off")
+
             plt.savefig(str(vis_path / f"{image_id}_visualization.png"))
             plt.close()
 

@@ -5,9 +5,10 @@ from pathlib import Path
 from typing import Tuple, Optional, List, Dict, Union
 import matplotlib.pyplot as plt
 import pandas as pd
-from advanced_edge_detection import MultiscaleDetector, LoGDetector
-from advanced_segmentation import RegionGrowing
-from evaluation.metrics import SegmentationMetrics
+from src.advanced_edge_detection import MultiscaleDetector, LoGDetector
+from src.advanced_segmentation import RegionGrowing
+from src.evaluation.metrics import SegmentationMetrics
+from src.advanced_segmentation import WatershedSegmentation
 
 
 class EdgeBasedSegmentation:
@@ -108,6 +109,7 @@ class EdgeBasedSegmentation:
         Raises:
             ValueError: If no image is loaded
         """
+
         if self.image is None:
             raise ValueError("No image loaded")
 
@@ -126,7 +128,11 @@ class EdgeBasedSegmentation:
                 mag = np.sqrt(gx**2 + gy**2)
                 edges[y, x] = mag
 
-        edges = (edges - np.min(edges)) / (np.max(edges) - np.min(edges))
+        if np.max(edges) - np.min(edges) > 1e-5:
+            edges = (edges - np.min(edges)) / (np.max(edges) - np.min(edges))
+        else:
+            edges[:] = 0  # Handle constant images gracefully
+
         self.edges = edges
         return edges
 
@@ -262,6 +268,12 @@ class EdgeBasedSegmentation:
         Raises:
             ValueError: If no edges have been detected
         """
+        # normalize the edges and multiply by 255
+        self.edges = (self.edges - np.min(self.edges)) / (
+            np.max(self.edges) - np.min(self.edges)
+        )
+        self.edges = (self.edges * 255).astype(np.uint8)
+        print(self.edges)
         if self.edges is None:
             raise ValueError("No edges detected. Run edge detection first.")
 
@@ -303,34 +315,32 @@ class EdgeBasedSegmentation:
         output_path: str = "results",
     ) -> Dict:
         """
-        Compare all edge detection methods and segmentation approaches.
-
-        Args:
-            show_plot: Whether to display the plot
-            save_plot: Whether to save the plot
-            output_path: Directory to save results
-
-        Returns:
-            Dictionary containing comparison metrics
+        Compare all edge detection and segmentation methods.
         """
         if self.image is None:
             raise ValueError("No image loaded")
 
         output_base = Path(output_path)
 
-        # Initialize metrics calculator and region grower
+        # Initialize segmentation methods
         metrics_calculator = SegmentationMetrics()
         region_grower = RegionGrowing(
             threshold=0.05, num_seeds=100, min_region_size=100, output_path=output_path
         )
+        watershed_seg = WatershedSegmentation(output_path=output_path)
 
         # Process with all edge detectors
         # Sobel
         sobel_edges = self.detect_edges_sobel(ksize=3)
-        sobel_segments = self.segment_image(threshold=128, min_region_size=100)
+        sobel_segments = self.segment_image(threshold=10, min_region_size=100)
         sobel_vis = self.create_segment_visualization(sobel_segments)
         sobel_regions = region_grower.segment(
             self.image, edge_map=sobel_edges, image_id=f"{self.image_id}_sobel"
+        )
+        sobel_watershed, sobel_watershed_labels = watershed_seg.segment(
+            self.image,
+            edge_map=sobel_edges,
+            image_id=f"{self.image_id}_sobel_watershed",
         )
 
         # Canny
@@ -338,10 +348,15 @@ class EdgeBasedSegmentation:
             threshold=0.005, num_seeds=100, min_region_size=100, output_path=output_path
         )
         canny_edges = self.detect_edges_canny(10, 20)
-        canny_segments = self.segment_image(threshold=128, min_region_size=100)
+        canny_segments = self.segment_image(threshold=10, min_region_size=100)
         canny_vis = self.create_segment_visualization(canny_segments)
         canny_regions = region_grower.segment(
             self.image, edge_map=canny_edges, image_id=f"{self.image_id}_canny"
+        )
+        canny_watershed, canny_watershed_labels = watershed_seg.segment(
+            self.image,
+            edge_map=canny_edges,
+            image_id=f"{self.image_id}_canny_watershed",
         )
 
         # Multi-scale
@@ -351,10 +366,15 @@ class EdgeBasedSegmentation:
         ms_detector = MultiscaleDetector(output_path=output_path)
         ms_edges = ms_detector.detect(self.image)
         self.edges = (ms_edges * 255).astype(np.uint8)
-        ms_segments = self.segment_image(threshold=128, min_region_size=100)
+        ms_segments = self.segment_image(threshold=10, min_region_size=100)
         ms_vis = self.create_segment_visualization(ms_segments)
         ms_regions = region_grower.segment(
             self.image, edge_map=self.edges, image_id=f"{self.image_id}_multiscale"
+        )
+        ms_watershed, ms_watershed_labels = watershed_seg.segment(
+            self.image,
+            edge_map=self.edges,
+            image_id=f"{self.image_id}_multiscale_watershed",
         )
 
         # LoG
@@ -364,35 +384,16 @@ class EdgeBasedSegmentation:
         log_detector = LoGDetector(output_path=output_path)
         log_edges = log_detector.detect(self.image)
         self.edges = log_edges
-        log_segments = self.segment_image(threshold=128, min_region_size=100)
+        log_segments = self.segment_image(threshold=10, min_region_size=100)
         log_vis = self.create_segment_visualization(log_segments)
         log_regions = region_grower.segment(
             self.image, edge_map=log_edges, image_id=f"{self.image_id}_log"
         )
+        log_watershed, log_watershed_labels = watershed_seg.segment(
+            self.image, edge_map=log_edges, image_id=f"{self.image_id}_log_watershed"
+        )
 
-        # Save results for each method
-        for method, edges, vis, regions in [
-            ("sobel", sobel_edges, sobel_vis, sobel_regions),
-            ("canny", canny_edges, canny_vis, canny_regions),
-            ("multiscale", ms_edges, ms_vis, ms_regions),
-            ("log", log_edges, log_vis, log_regions),
-        ]:
-            # Save edges
-            edges_dir = output_base / "edges" / method
-            edges_dir.mkdir(parents=True, exist_ok=True)
-            if method in ["multiscale", "log"]:
-                edges_dir = output_base / "advanced_edges" / method / "edges"
-            cv2.imwrite(
-                str(edges_dir / f"{self.image_id}_edges.jpg"),
-                edges * 255 if edges.max() <= 1 else edges,
-            )
-
-            # Save segmentation
-            segments_dir = output_base / "segments" / method
-            segments_dir.mkdir(parents=True, exist_ok=True)
-            cv2.imwrite(str(segments_dir / f"{self.image_id}_segments.jpg"), vis)
-
-            # Calculate comprehensive metrics
+        # Calculate metrics
         metrics = {
             # Edge detection metrics
             "sobel_edge_density": metrics_calculator.edge_metrics(sobel_edges)[
@@ -433,113 +434,89 @@ class EdgeBasedSegmentation:
             "log_regions": metrics_calculator.segment_metrics(log_regions)[
                 "num_segments"
             ],
-            # Edge continuity metrics
-            "sobel_edge_continuity": metrics_calculator.edge_metrics(sobel_edges)[
-                "edge_continuity"
-            ],
-            "canny_edge_continuity": metrics_calculator.edge_metrics(canny_edges)[
-                "edge_continuity"
-            ],
-            "multiscale_edge_continuity": metrics_calculator.edge_metrics(ms_edges)[
-                "edge_continuity"
-            ],
-            "log_edge_continuity": metrics_calculator.edge_metrics(log_edges)[
-                "edge_continuity"
-            ],
-            # Region size metrics
-            "sobel_avg_region_size": metrics_calculator.segment_metrics(sobel_regions)[
-                "avg_segment_size"
-            ],
-            "canny_avg_region_size": metrics_calculator.segment_metrics(canny_regions)[
-                "avg_segment_size"
-            ],
-            "multiscale_avg_region_size": metrics_calculator.segment_metrics(
-                ms_regions
-            )["avg_segment_size"],
-            "log_avg_region_size": metrics_calculator.segment_metrics(log_regions)[
-                "avg_segment_size"
-            ],
+            # Watershed metrics
+            "sobel_watershed_regions": len(np.unique(sobel_watershed_labels)),
+            "canny_watershed_regions": len(np.unique(canny_watershed_labels)),
+            "multiscale_watershed_regions": len(np.unique(ms_watershed_labels)),
+            "log_watershed_regions": len(np.unique(log_watershed_labels)),
         }
 
         if show_plot or save_plot:
-            plt.figure(figsize=(20, 15))
+            plt.figure(figsize=(20, 20))
 
             # Original image
-            plt.subplot(3, 4, 1)
+            plt.subplot(5, 4, 5)
             plt.imshow(cv2.cvtColor(self.image, cv2.COLOR_BGR2RGB))
             plt.title("Original Image")
             plt.axis("off")
 
             # Edge detection results
-            plt.subplot(3, 4, 2)
+            plt.subplot(5, 4, 1)
             plt.imshow(sobel_edges, cmap="gray")
-            plt.title(
-                f"Sobel Edges\nDensity: {metrics['sobel_edge_density']:.3f}\nContinuity: {metrics['sobel_edge_continuity']:.3f}"
-            )
+            plt.title(f"Sobel Edges\nDensity: {metrics['sobel_edge_density']:.3f}")
             plt.axis("off")
 
-            plt.subplot(3, 4, 3)
+            plt.subplot(5, 4, 2)
             plt.imshow(canny_edges, cmap="gray")
-            plt.title(
-                f"Canny Edges\nDensity: {metrics['canny_edge_density']:.3f}\nContinuity: {metrics['canny_edge_continuity']:.3f}"
-            )
+            plt.title(f"Canny Edges\nDensity: {metrics['canny_edge_density']:.3f}")
             plt.axis("off")
 
-            plt.subplot(3, 4, 4)
+            plt.subplot(5, 4, 4)
+            plt.imshow(log_edges, cmap="gray")
+            plt.title(f"LoG Edges\nDensity: {metrics['log_edge_density']:.3f}")
+            plt.axis("off")
+
+            plt.subplot(5, 4, 3)
             plt.imshow(ms_edges, cmap="gray")
             plt.title(
-                f"Multi-scale Edges\nDensity: {metrics['multiscale_edge_density']:.3f}\nContinuity: {metrics['multiscale_edge_continuity']:.3f}"
+                f"Multi-scale Edges\nDensity: {metrics['multiscale_edge_density']:.3f}"
             )
-            plt.axis("off")
-
-            # Basic segmentation results
-            plt.subplot(3, 4, 5)
-            plt.imshow(cv2.cvtColor(sobel_vis, cv2.COLOR_BGR2RGB))
-            plt.title(f"Sobel Segments\nCount: {metrics['sobel_segments']}")
-            plt.axis("off")
-
-            plt.subplot(3, 4, 6)
-            plt.imshow(cv2.cvtColor(canny_vis, cv2.COLOR_BGR2RGB))
-            plt.title(f"Canny Segments\nCount: {metrics['canny_segments']}")
-            plt.axis("off")
-
-            plt.subplot(3, 4, 7)
-            plt.imshow(cv2.cvtColor(ms_vis, cv2.COLOR_BGR2RGB))
-            plt.title(f"Multi-scale Segments\nCount: {metrics['multiscale_segments']}")
-            plt.axis("off")
-
-            plt.subplot(3, 4, 8)
-            plt.imshow(cv2.cvtColor(log_vis, cv2.COLOR_BGR2RGB))
-            plt.title(f"LoG Segments\nCount: {metrics['log_segments']}")
             plt.axis("off")
 
             # Region growing results
-            plt.subplot(3, 4, 9)
+            plt.subplot(5, 4, 9)
             plt.imshow(sobel_regions, cmap="nipy_spectral")
-            plt.title(
-                f"Sobel Region Growing\nRegions: {metrics['sobel_regions']}\nAvg Size: {metrics['sobel_avg_region_size']:.1f}"
-            )
+            plt.title(f"Sobel Region Growing\nRegions: {metrics['sobel_regions']}")
             plt.axis("off")
 
-            plt.subplot(3, 4, 10)
+            plt.subplot(5, 4, 10)
             plt.imshow(canny_regions, cmap="nipy_spectral")
-            plt.title(
-                f"Canny Region Growing\nRegions: {metrics['canny_regions']}\nAvg Size: {metrics['canny_avg_region_size']:.1f}"
-            )
+            plt.title(f"Canny Region Growing\nRegions: {metrics['canny_regions']}")
             plt.axis("off")
 
-            plt.subplot(3, 4, 11)
+            plt.subplot(5, 4, 11)
             plt.imshow(ms_regions, cmap="nipy_spectral")
             plt.title(
-                f"Multi-scale Region Growing\nRegions: {metrics['multiscale_regions']}\nAvg Size: {metrics['multiscale_avg_region_size']:.1f}"
+                f"Multi-scale Region Growing\nRegions: {metrics['multiscale_regions']}"
             )
             plt.axis("off")
 
-            plt.subplot(3, 4, 12)
+            plt.subplot(5, 4, 12)
             plt.imshow(log_regions, cmap="nipy_spectral")
+            plt.title(f"LoG Region Growing\nRegions: {metrics['log_regions']}")
+            plt.axis("off")
+
+            # Watershed results
+            plt.subplot(5, 4, 13)
+            plt.imshow(cv2.cvtColor(sobel_watershed, cv2.COLOR_BGR2RGB))
+            plt.title(f"Sobel Watershed\nRegions: {metrics['sobel_watershed_regions']}")
+            plt.axis("off")
+
+            plt.subplot(5, 4, 14)
+            plt.imshow(cv2.cvtColor(canny_watershed, cv2.COLOR_BGR2RGB))
+            plt.title(f"Canny Watershed\nRegions: {metrics['canny_watershed_regions']}")
+            plt.axis("off")
+
+            plt.subplot(5, 4, 15)
+            plt.imshow(cv2.cvtColor(ms_watershed, cv2.COLOR_BGR2RGB))
             plt.title(
-                f"LoG Region Growing\nRegions: {metrics['log_regions']}\nAvg Size: {metrics['log_avg_region_size']:.1f}"
+                f"Multi-scale Watershed\nRegions: {metrics['multiscale_watershed_regions']}"
             )
+            plt.axis("off")
+
+            plt.subplot(5, 4, 16)
+            plt.imshow(cv2.cvtColor(log_watershed, cv2.COLOR_BGR2RGB))
+            plt.title(f"LoG Watershed\nRegions: {metrics['log_watershed_regions']}")
             plt.axis("off")
 
             plt.tight_layout()
@@ -595,6 +572,9 @@ def process_dataset_sample(
         # Region growing results
         output_base / "advanced_segments" / "region_growing" / "segments",
         output_base / "advanced_segments" / "region_growing" / "visualizations",
+        # Watershed results
+        output_base / "advanced_segments" / "watershed" / "segments",
+        output_base / "advanced_segments" / "watershed" / "visualizations",
         # Evaluation results
         output_base / "evaluation" / "metrics",
         output_base / "evaluation" / "benchmarks",
@@ -619,6 +599,7 @@ def process_dataset_sample(
     # image_ids = train_ids + test_ids
     # Force to use only the first 10 images
     image_ids = (train_ids + test_ids)[:10]
+
     if n_samples is not None:
         image_ids = image_ids[:n_samples]
         print(f"Processing {n_samples} samples")
@@ -660,21 +641,23 @@ def process_dataset_sample(
             ("log", "multiscale"),
         ]
 
+        # Calculate comparison metrics
         for method1, method2 in method_pairs:
             # Edge detection comparisons
             df[f"{method1}_vs_{method2}_edge_density"] = (
                 df[f"{method1}_edge_density"] - df[f"{method2}_edge_density"]
             )
-            df[f"{method1}_vs_{method2}_continuity"] = (
-                df[f"{method1}_edge_continuity"] - df[f"{method2}_edge_continuity"]
-            )
-
-            # Segmentation comparisons
+            # Basic segmentation comparisons
             df[f"{method1}_vs_{method2}_segments"] = (
                 df[f"{method1}_segments"] - df[f"{method2}_segments"]
             )
+            # Region growing comparisons
             df[f"{method1}_vs_{method2}_regions"] = (
                 df[f"{method1}_regions"] - df[f"{method2}_regions"]
+            )
+            # Watershed comparisons
+            df[f"{method1}_vs_{method2}_watershed"] = (
+                df[f"{method1}_watershed_regions"] - df[f"{method2}_watershed_regions"]
             )
 
         summary = df.describe()
@@ -699,42 +682,66 @@ def process_dataset_sample(
                 f"Test images: {len([r for r in results if r['dataset'] == 'test'])}\n\n"
             )
 
+            # Edge Detection Metrics
             f.write("Edge Detection Metrics:\n")
-            f.write("-----------------------\n")
+            f.write("----------------------\n")
             for method in ["sobel", "canny", "multiscale", "log"]:
-                f.write(f"\n{method.capitalize()}:\n")
-                f.write(
-                    f"Average edge density: {df[f'{method}_edge_density'].mean():.3f}\n"
-                )
-                f.write(
-                    f"Edge continuity: {df[f'{method}_edge_continuity'].mean():.3f}\n"
-                )
 
-            f.write("\nSegmentation Metrics:\n")
-            f.write("--------------------\n")
+                f.write(f"\n{method.capitalize()}:\n")
+                f.write(f"Edge density: {df[f'{method}_edge_density'].mean():.3f}\n")
+                if f"{method}_edge_continuity" in df.columns:
+                    f.write(
+                        f"Edge continuity: {df[f'{method}_edge_continuity'].mean():.3f}\n"
+                    )
+                else:
+                    f.write(f"Edge continuity: Not available for {method}\n")
+
+            # Segmentation Metrics
+            f.write("\nSegmentation Method Comparison:\n")
+            f.write("----------------------------\n")
             for method in ["sobel", "canny", "multiscale", "log"]:
                 f.write(f"\n{method.capitalize()}:\n")
-                f.write(f"Average segments: {df[f'{method}_segments'].mean():.1f}\n")
-                f.write(f"Average regions: {df[f'{method}_regions'].mean():.1f}\n")
+                f.write(f"Basic segments: {df[f'{method}_segments'].mean():.1f}\n")
+                f.write(
+                    f"Region growing regions: {df[f'{method}_regions'].mean():.1f}\n"
+                )
+                f.write(
+                    f"Watershed regions: {df[f'{method}_watershed_regions'].mean():.1f}\n"
+                )
                 f.write(
                     f"Average region size: {df[f'{method}_avg_region_size'].mean():.1f}\n"
                 )
 
-            f.write("\nMethod Comparisons:\n")
-            f.write("------------------\n")
+            # Method Comparisons
+            f.write("\nMethod-wise Comparisons:\n")
+            f.write("----------------------\n")
             for method1, method2 in method_pairs:
                 f.write(f"\n{method1.capitalize()} vs {method2.capitalize()}:\n")
                 f.write(
                     f"Edge density difference: {df[f'{method1}_vs_{method2}_edge_density'].mean():.3f}\n"
                 )
                 f.write(
-                    f"Continuity difference: {df[f'{method1}_vs_{method2}_continuity'].mean():.3f}\n"
+                    f"Basic segment difference: {df[f'{method1}_vs_{method2}_segments'].mean():.1f}\n"
                 )
                 f.write(
-                    f"Segment count difference: {df[f'{method1}_vs_{method2}_segments'].mean():.1f}\n"
+                    f"Region growing difference: {df[f'{method1}_vs_{method2}_regions'].mean():.1f}\n"
                 )
                 f.write(
-                    f"Region count difference: {df[f'{method1}_vs_{method2}_regions'].mean():.1f}\n"
+                    f"Watershed region difference: {df[f'{method1}_vs_{method2}_watershed'].mean():.1f}\n"
+                )
+
+            # Segmentation Method Analysis
+            f.write("\nSegmentation Method Analysis:\n")
+            f.write("---------------------------\n")
+            for method in ["sobel", "canny", "multiscale", "log"]:
+                f.write(f"\n{method.capitalize()}:\n")
+                basic_avg = df[f"{method}_segments"].mean()
+                region_avg = df[f"{method}_regions"].mean()
+                watershed_avg = df[f"{method}_watershed_regions"].mean()
+                f.write(f"Basic vs Region Growing: {basic_avg - region_avg:.1f}\n")
+                f.write(f"Basic vs Watershed: {basic_avg - watershed_avg:.1f}\n")
+                f.write(
+                    f"Region Growing vs Watershed: {region_avg - watershed_avg:.1f}\n"
                 )
 
         print(f"\nResults saved to {results_dir}")
